@@ -11,7 +11,17 @@ git clone https://github.com/CodexForgeBR/cli-tools.git ~/source/cli-tools
 # Add to PATH in ~/.zshrc
 echo 'export PATH="$HOME/source/cli-tools/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
+
+# Set up global Claude Code configuration (optional but recommended)
+mkdir -p ~/.claude
+ln -s ~/source/cli-tools/CLAUDE.md ~/.claude/CLAUDE.md
 ```
+
+**What does the global CLAUDE.md do?**
+- Provides instructions to Claude Code across ALL projects
+- Automatically tells Claude about available CLI tools
+- Makes Claude use these scripts instead of reinventing solutions
+- Syncs via Git when you update the repository
 
 ## Available Scripts
 
@@ -40,13 +50,22 @@ get-coderabbit-comments.sh 72
 
 ## On a New Machine
 
-Simply clone the repository and add to PATH:
+Simply clone the repository, add to PATH, and set up global config:
 
 ```bash
+# Clone the repository
 git clone https://github.com/CodexForgeBR/cli-tools.git ~/source/cli-tools
+
+# Add to PATH
 echo 'export PATH="$HOME/source/cli-tools/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
+
+# Set up global Claude Code configuration
+mkdir -p ~/.claude
+ln -s ~/source/cli-tools/CLAUDE.md ~/.claude/CLAUDE.md
 ```
+
+Done! All scripts are now available, and Claude Code will know about them across all projects.
 
 ## Contributing
 
