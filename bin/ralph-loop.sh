@@ -466,38 +466,81 @@ try:
 except:
     sys.exit(1)
 
-# Method 1: Try to extract from markdown code blocks
-code_block_pattern = r'```json\s*(.*?)```'
-matches = re.findall(code_block_pattern, content, re.DOTALL)
-for m in matches:
+def find_json_containing(content, json_type):
+    """Find JSON object containing the specified key using bracket matching"""
+    search_key = f'"{json_type}"'
+
+    # Method 1: Try markdown code blocks first
+    code_block_pattern = r'```json\s*(.*?)```'
+    for match in re.finditer(code_block_pattern, content, re.DOTALL):
+        block = match.group(1).strip()
+        if json_type in block:
+            try:
+                parsed = json.loads(block)
+                if json_type in parsed:
+                    return block
+            except:
+                pass
+
+    # Method 2: Bracket-matching for arbitrary nesting depth
+    key_pos = content.find(search_key)
+    if key_pos == -1:
+        return None
+
+    # Find the opening brace before the key
+    start = key_pos
+    while start > 0 and content[start] != '{':
+        start -= 1
+
+    if start < 0 or content[start] != '{':
+        return None
+
+    # Match brackets with proper depth tracking
+    depth = 0
+    in_string = False
+    escape_next = False
+    end = start
+
+    for i, char in enumerate(content[start:], start):
+        if escape_next:
+            escape_next = False
+            continue
+        if char == '\\' and in_string:
+            escape_next = True
+            continue
+        if char == '"' and not escape_next:
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if char == '{':
+            depth += 1
+        elif char == '}':
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+
+    if depth != 0:
+        return None
+
+    candidate = content[start:end]
     try:
-        parsed = json.loads(m.strip())
+        parsed = json.loads(candidate)
         if json_type in parsed:
-            print(json.dumps(parsed))
-            sys.exit(0)
+            return candidate
     except:
         pass
 
-# Method 2: Look for raw JSON object containing the key
-brace_pattern = r'\{[^{}]*"' + re.escape(json_type) + r'"[^{}]*(?:\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}[^{}]*)*\}'
-matches = re.findall(brace_pattern, content, re.DOTALL)
-for m in matches:
-    try:
-        parsed = json.loads(m)
-        if json_type in parsed:
-            print(json.dumps(parsed))
-            sys.exit(0)
-    except:
-        pass
+    return None
 
-# Method 3: Try to find and parse any JSON object in the content
-json_pattern = r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}'
-for match in re.finditer(json_pattern, content, re.DOTALL):
+# Try to find and parse JSON containing the specified key
+result = find_json_containing(content, json_type)
+if result:
     try:
-        parsed = json.loads(match.group())
-        if json_type in parsed:
-            print(json.dumps(parsed))
-            sys.exit(0)
+        parsed = json.loads(result)
+        print(json.dumps(parsed))
+        sys.exit(0)
     except:
         pass
 
