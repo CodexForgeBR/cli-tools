@@ -307,7 +307,8 @@ load_state() {
     fi
 
     # Use Python to parse JSON and output shell variable assignments
-    eval "$(python3 - "$state_file" << 'PYTHON_EOF'
+    local python_output
+    python_output=$(python3 - "$state_file" << 'PYTHON_EOF'
 import sys
 import json
 import base64
@@ -340,14 +341,30 @@ except Exception as e:
     print(f"# Error loading state: {e}", file=sys.stderr)
     sys.exit(1)
 PYTHON_EOF
-)"
+)
+
+    # Check if Python command succeeded
+    local python_exit=$?
+    if [[ $python_exit -ne 0 ]]; then
+        echo "ERROR: Failed to parse state file" >&2
+        return 1
+    fi
+
+    # Eval the Python output to set variables
+    eval "$python_output"
+
+    # Verify critical variable was set
+    if [[ -z "$ITERATION" ]]; then
+        echo "ERROR: ITERATION not set after loading state" >&2
+        return 1
+    fi
 
     # Decode base64 feedback
     if [[ -n "$LAST_FEEDBACK_B64" ]]; then
         LAST_FEEDBACK=$(echo "$LAST_FEEDBACK_B64" | base64 -d)
     fi
 
-    return $?
+    return 0
 }
 
 # Validate state integrity
