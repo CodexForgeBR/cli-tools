@@ -1,0 +1,140 @@
+#!/bin/bash
+
+# rm wrapper script - Backs up files instead of deleting when called from automated CLIs
+# Created for CodexForge CLI Tools
+# Repository: https://github.com/CodexForgeBR/cli-tools
+
+BACKUP_DIR="$HOME/.rm-backup"
+DEBUG_LOG="$HOME/.rm-wrapper-debug.log"
+
+# Function to check entire process ancestry for automated CLI tools
+check_process_tree() {
+    local pid=$1
+    local depth=0
+    local max_depth=20  # Increased to handle sandbox-exec wrapper on macOS
+
+    echo "[$(date)] Starting process tree check from PID=$pid" >> "$DEBUG_LOG"
+
+    while [[ $pid -gt 1 ]] && [[ $depth -lt $max_depth ]]; do
+        local cmd=$(ps -o comm= -p $pid 2>/dev/null)
+        local cmdline=$(ps -o args= -p $pid 2>/dev/null)
+
+        echo "  Depth $depth: PID=$pid, cmd='$cmd'" >> "$DEBUG_LOG"
+
+        # Check for Claude Code or Codex CLI markers
+        # Expanded patterns: check for claude, codex, node, python (common automation tools)
+        if [[ "$cmd" =~ (claude|codex|node|python) ]] || [[ "$cmdline" =~ (claude-code|codex-cli|@anthropics/claude|/codex) ]]; then
+            echo "  MATCHED! Detected: $cmd" >> "$DEBUG_LOG"
+            echo "$cmd"
+            return 0
+        fi
+
+        # Move to parent process
+        pid=$(ps -o ppid= -p $pid 2>/dev/null | tr -d ' ')
+        ((depth++))
+    done
+
+    echo "  No match found in process tree" >> "$DEBUG_LOG"
+    return 1
+}
+
+# Function to check if a path matches whitelist patterns
+is_whitelisted() {
+    local path="$1"
+
+    # Normalize path - expand to absolute if needed
+    if [[ "$path" != /* ]]; then
+        path="$(pwd)/$path"
+    fi
+
+    # Whitelist patterns (allow actual deletion even from automated CLIs)
+
+    # 1. Temporary files: /tmp/*, *.tmp
+    if [[ "$path" =~ ^/tmp/ ]] || [[ "$path" =~ \.tmp$ ]]; then
+        return 0
+    fi
+
+    # 2. Hidden files: .* (dotfiles)
+    local basename=$(basename "$path")
+    if [[ "$basename" =~ ^\. ]]; then
+        return 0
+    fi
+
+    # 3. Build artifacts: bin/, obj/, node_modules/
+    if [[ "$path" =~ /bin(/|$) ]] || \
+       [[ "$path" =~ /obj(/|$) ]] || \
+       [[ "$path" =~ /node_modules(/|$) ]] || \
+       [[ "$path" =~ /target(/|$) ]] || \
+       [[ "$path" =~ /dist(/|$) ]] || \
+       [[ "$path" =~ /build(/|$) ]]; then
+        return 0
+    fi
+
+    # Not whitelisted
+    return 1
+}
+
+# Function to backup a file/directory instead of deleting
+backup_file() {
+    local source="$1"
+    local timestamp=$(date +"%Y_%m_%d_%H_%M_%S")
+
+    # Convert to absolute path if not already
+    if [[ "$source" != /* ]]; then
+        source="$(pwd)/$source"
+    fi
+
+    # Remove leading slash and create backup path structure
+    local relative_path="${source#/}"
+    local backup_path="$BACKUP_DIR/$relative_path.$timestamp"
+    local backup_dir=$(dirname "$backup_path")
+
+    # Create backup directory structure
+    mkdir -p "$backup_dir"
+
+    # Move file to backup location
+    /bin/mv "$source" "$backup_path" 2>/dev/null
+
+    return $?
+}
+
+# Check if called from automated CLI context
+detected_cli=""
+if detected_cli=$(check_process_tree $$); then
+    # We're in an automated CLI context - check all arguments against whitelist
+
+    # Parse arguments to find actual file paths (skip flags)
+    declare -a files_to_backup=()
+    declare -a flags=()
+
+    for arg in "$@"; do
+        if [[ "$arg" == -* ]]; then
+            # It's a flag, keep it for potential real rm call
+            flags+=("$arg")
+        else
+            # It's a file path
+            if ! is_whitelisted "$arg"; then
+                # Not whitelisted - needs backup
+                files_to_backup+=("$arg")
+            fi
+        fi
+    done
+
+    # If there are non-whitelisted files, back them up instead of deleting
+    if [[ ${#files_to_backup[@]} -gt 0 ]]; then
+        # Backup each file
+        for file in "${files_to_backup[@]}"; do
+            if [[ -e "$file" ]]; then
+                backup_file "$file"
+            fi
+        done
+
+        # Exit successfully so Claude thinks the rm worked
+        exit 0
+    fi
+
+    # All files are whitelisted - allow the real deletion
+fi
+
+# Execute real rm command (for whitelisted files or non-automated context)
+exec /bin/rm "$@"

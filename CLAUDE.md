@@ -81,67 +81,189 @@ get-coderabbit-comments-with-timestamps.sh 72 --since "$LAST_COMMIT"
 - ISO 8601 with timezone: `2025-10-23T10:30:00-07:00`
 - Readable format: `2025-10-23 10:30:00` (automatically converted)
 
-## Global Development Guidelines
+### rm (Wrapper Script)
 
-### Working with CodeRabbit
+**Purpose:** Protective wrapper around the system `rm` command that backs up files instead of deleting them when called from automated CLI tools.
 
-#### Local CodeRabbit Reviews (Pre-PR Workflow)
+**⚠️ CRITICAL PROTECTION MECHANISM:**
+This wrapper is designed to prevent Claude Code and other automated CLI tools from accidentally deleting important files by backing them up to `~/.rm-backup/` instead.
 
-**Purpose:** Run comprehensive local CodeRabbit scans before creating pull requests.
+**How It Works:**
+1. **Process Tree Analysis**: Recursively checks up to 10 parent processes to detect if called from `claude`, `codex`, or `node` processes
+2. **Whitelist Validation**: Checks all file arguments against whitelist patterns
+3. **Selective Backup**: Moves non-whitelisted files to `~/.rm-backup/` when called from automated CLIs
+4. **Transparent Passthrough**: Works normally when called from regular terminal sessions
+5. **Silent Success**: Returns exit code 0 so Claude Code thinks deletion succeeded
 
-**Activation:** When the user asks to run a local CodeRabbit scan, the `pre-pr-review` skill automatically activates and delegates to the `local-coderabbit-reviewer` sub-agent.
+**Whitelisted Patterns (Actually Deleted):**
+- **Temporary files**: `/tmp/*`, `*.tmp`
+- **Hidden files**: `.*` (dotfiles, like `.cache`, `.DS_Store`)
+- **Build artifacts**: `bin/`, `obj/`, `node_modules/`, `target/`, `dist/`, `build/`
 
-**Trigger Phrases:**
-- "Run local coderabbit scan"
-- "Do a local coderabbit review"
-- "Review my code before PR"
-- "Local CodeRabbit scan"
-
-**What Happens Automatically:**
-1. Runs scan: `coderabbit review --plain --base main --config CLAUDE.md`
-2. Saves results to `.coderabbit/review.txt`
-3. Analyzes all findings
-4. **Presents a plan** for implementing fixes (always, even if not in plan mode)
-5. Applies fixes systematically
-6. Runs full test suite
-7. **Only if all tests pass**: commits with descriptive message
-8. **If tests fail**: stops and reports (does NOT commit)
-
-**Components:**
-- **CodeRabbit CLI**: `~/.local/bin/coderabbit` (must be installed and authenticated)
-- **Sub-agent**: `~/.claude/agents/local-coderabbit-reviewer.md` (executes workflow)
-- **Skill**: `~/.claude/skills/pre-pr-review/SKILL.md` (auto-activation)
-
-**Safety Features:**
-- Never commits if tests fail
-- Always presents plan before making changes
-- Respects project conventions and patterns
-- Comprehensive scan (all changes vs main)
-
-**Documentation:** See `~/.claude/skills/pre-pr-review/README.md` for complete workflow details.
-
-**Manual Usage** (if needed):
+**Usage:**
 ```bash
-# Review all changes (committed + uncommitted)
-coderabbit review --plain --base main --config CLAUDE.md > .coderabbit/review.txt 2>&1
+# From normal terminal - works as expected (actually deletes)
+rm myfile.txt  # ✅ Deleted
 
-# Review only uncommitted changes
-coderabbit review --plain --type uncommitted --config CLAUDE.md > .coderabbit/review.txt 2>&1
+# From Claude Code - backs up non-whitelisted files
+rm important.json  # ✅ Moved to ~/.rm-backup/path/to/important.json.2025_11_04_17_00_00
 
-# Review only committed changes
-coderabbit review --plain --type committed --base main --config CLAUDE.md > .coderabbit/review.txt 2>&1
+# From Claude Code - actually deletes whitelisted patterns
+rm /tmp/test.txt   # ✅ Actually deleted (temporary file)
+rm .cache          # ✅ Actually deleted (hidden file)
+rm -rf bin/        # ✅ Actually deleted (build artifact)
+```
+
+**Backup Location:**
+Files are moved to `~/.rm-backup/` preserving the original path structure with timestamp:
+```bash
+# Original: /Users/bccs/source/project/important.json
+# Backup:   ~/.rm-backup/Users/bccs/source/project/important.json.2025_11_04_17_00_00
+```
+
+**Restoring Files:**
+```bash
+# Check what was backed up
+ls -la ~/.rm-backup/
+
+# Restore a file (copy it back to original location)
+cp ~/.rm-backup/path/to/file.txt.2025_11_04_17_00_00 /original/path/file.txt
+
+# Or use mv to restore and remove backup
+mv ~/.rm-backup/path/to/file.txt.2025_11_04_17_00_00 /original/path/file.txt
+```
+
+**Cleanup Old Backups:**
+```bash
+# Review backups before deleting
+ls -la ~/.rm-backup/
+
+# Remove all backups (use system rm to bypass wrapper)
+/bin/rm -rf ~/.rm-backup
+
+# Remove backups older than 7 days
+find ~/.rm-backup -type f -mtime +7 -exec /bin/rm {} \;
+```
+
+**Bypass (If Absolutely Needed):**
+```bash
+# Use absolute path to system rm to actually delete
+/bin/rm myfile.txt
 ```
 
 **Installation:**
-```bash
-# Install CodeRabbit CLI
-curl -fsSL https://cli.coderabbit.ai/install.sh | sh
+The wrapper is automatically active once `~/source/cli-tools/bin` is in your PATH (which appears before `/bin/`, creating an override).
 
-# Authenticate
-coderabbit auth login
+**Why This Exists:**
+Automated CLI tools like Claude Code can sometimes suggest destructive `rm` commands that might delete important files. This wrapper provides a safety net by backing up files instead of deleting them, while still allowing common development operations like cleaning build artifacts.
+
+### git (Wrapper Script)
+
+**Purpose:** Protective wrapper around git that blocks destructive commands when called from automated CLI tools (claude, codex, gemini).
+
+**⚠️ CRITICAL PROTECTION MECHANISM:**
+This wrapper prevents Claude Code and other automated tools from running destructive git commands that could:
+- Bypass pre-commit hooks (`--no-verify`)
+- Rewrite git history (force push)
+- Permanently delete uncommitted work (`reset --hard`, `clean -f`)
+
+**Key Difference from rm/rmdir Wrappers:**
+- **rm/rmdir**: Pretend to succeed (exit 0) + backup files
+- **git**: Fail fast (exit 1) + display stern error message
+
+**How It Works:**
+1. **Process Tree Analysis**: Recursively checks up to 20 parent processes for claude, codex, gemini
+2. **Command Pattern Matching**: Analyzes git command and arguments for destructive patterns
+3. **Fail Fast**: Returns exit code 1 with clear error message when blocking commands
+4. **Transparent Passthrough**: Works normally when called from regular terminal sessions
+
+**Blocked Commands:**
+- `git commit --no-verify` or `git commit -n` - Bypasses Husky.Net pre-commit validation
+- `git reset --hard` - Destroys uncommitted changes
+- `git clean -f/-d/-x` - Deletes untracked/ignored files
+- `git push --force` or `git push -f` - Rewrites remote history
+- `git push --force-with-lease` - Still rewrites history
+
+**Usage:**
+```bash
+# From regular terminal - works as expected
+git commit --no-verify -m "emergency fix"  # ✅ Executes (though Husky may still block)
+
+# From Claude Code - blocked with error
+git commit --no-verify -m "test"  # ❌ BLOCKED: Bypasses pre-commit hooks
+git reset --hard HEAD~1           # ❌ BLOCKED: Destroys uncommitted changes
+git push --force origin main      # ❌ BLOCKED: Rewrites remote history
+
+# From Claude Code - safe commands work normally
+git status                        # ✅ Works
+git commit -m "normal commit"     # ✅ Works (runs pre-commit hooks)
+git push origin feature-branch    # ✅ Works
 ```
 
-#### GitHub PR CodeRabbit Reviews
+**Error Message Example:**
+```
+========================================
+GIT WRAPPER: DESTRUCTIVE COMMAND BLOCKED
+========================================
+
+BLOCKED: git commit --no-verify bypasses pre-commit hooks (Husky.Net validation)
+
+Detected automated CLI tool: claude
+
+This protection prevents Claude Code and other automated tools
+from running destructive git commands that could:
+  - Bypass security hooks (pre-commit validation)
+  - Rewrite git history (force push)
+  - Permanently delete uncommitted work (reset --hard, clean -f)
+
+To bypass this protection (if absolutely necessary):
+  1. Run the command from your regular terminal (not from Claude)
+  2. Or use the real git binary: /opt/homebrew/bin/git commit --no-verify
+
+See ~/.git-wrapper-debug.log for details
+========================================
+```
+
+**Debug Logging:**
+Commands are logged to `~/.git-wrapper-debug.log` with:
+- Process tree analysis results
+- Detected CLI tool (claude, codex, gemini)
+- Full command being executed
+- Block/allow decision reasoning
+
+**Bypass (If Absolutely Needed):**
+```bash
+# Use absolute path to real git binary
+/opt/homebrew/bin/git commit --no-verify -m "emergency"
+
+# Or run from regular terminal instead of Claude Code
+```
+
+**Installation:**
+The wrapper is automatically active once `~/source/cli-tools/bin` is in your PATH (which appears before `/opt/homebrew/bin`, creating an override).
+
+**Why This Exists:**
+Automated CLI tools can sometimes suggest destructive git commands that might:
+- Skip important validation (pre-commit hooks)
+- Rewrite shared git history (breaking collaborators)
+- Permanently lose uncommitted work
+
+This wrapper provides a safety net while still allowing all normal git operations.
+
+## Available Workflow Skills
+
+Specialized workflow automation skills are available in `~/.claude/skills/`:
+- `run-tests` - Clean, build, and test workflow
+- `performance-testing` - Performance regression detection
+- `pre-pr-review` - Local CodeRabbit scans before creating PRs
+- `coderabbit-workflow` - Auto-fix PR review feedback
+- `post-merge-cleanup` - Safe branch deletion
+
+Skills auto-activate based on your requests. See individual skill files for detailed documentation.
+
+## Global Development Guidelines
+
+### Working with CodeRabbit
 
 When the user asks to analyze, read, or fetch CodeRabbit comments from PRs:
 1. **Always use** `get-coderabbit-comments.sh <PR_NUMBER>`
@@ -149,189 +271,14 @@ When the user asks to analyze, read, or fetch CodeRabbit comments from PRs:
 3. The script handles all the GitHub API complexity
 4. Output is formatted for easy reading and analysis
 
-#### Automated CodeRabbit Workflow (NEW)
+**Installation (if needed):**
+```bash
+# Install CodeRabbit CLI
+curl -fsSL https://cli.coderabbit.ai/install.sh | sh
 
-**Purpose:** Automatically address CodeRabbit feedback in iterative review cycles.
-
-**Activation:** When the user asks to "address", "fix", or "handle" CodeRabbit issues on a PR, the `coderabbit-workflow` skill automatically activates and delegates to the `coderabbit-fixer` sub-agent.
-
-**Trigger Phrases:**
-- "Address latest issues raised by coderabbit on PR #123"
-- "Fix coderabbit comments on pull request 456"
-- "Handle coderabbit feedback for PR #789"
-
-**What Happens Automatically:**
-1. Gets timestamp of last commit on current branch
-2. Fetches only NEW CodeRabbit comments (using `get-coderabbit-comments-with-timestamps.sh`)
-3. Analyzes and applies fixes systematically
-4. Runs full test suite
-5. **Only if all tests pass**: commits, pushes, and creates detailed GitHub comment
-6. **If tests fail**: stops and reports (does NOT push)
-
-**Components:**
-- **Script**: `get-coderabbit-comments-with-timestamps.sh` (filters by timestamp)
-- **Sub-agent**: `~/.claude/agents/coderabbit-fixer.md` (executes workflow)
-- **Skill**: `~/.claude/skills/coderabbit-workflow/SKILL.md` (auto-activation)
-
-**Safety Features:**
-- Never pushes if tests fail
-- Only processes new comments (avoids re-fixing)
-- Creates detailed GitHub comments for transparency
-- Respects project conventions and patterns
-
-**Documentation:** See `~/.claude/skills/coderabbit-workflow/README.md` for complete workflow details.
-
-#### Post-Merge Branch Cleanup (NEW)
-
-**Purpose:** Safely delete merged feature branches with comprehensive validation to prevent data loss.
-
-**Activation:** When the user asks to "clean up", "delete", or "remove" a merged branch, the `post-merge-cleanup` skill automatically activates and delegates to the `branch-cleanup` sub-agent.
-
-**Trigger Phrases:**
-- "Clean up after merge"
-- "Delete merged branch"
-- "Remove feature branch"
-- "Post-merge cleanup"
-
-**What Happens Automatically:**
-1. Detects current feature branch (refuses if on protected branch like main/master)
-2. Runs ALL safety validations (must ALL pass):
-   - ✅ Check for uncommitted changes
-   - ✅ Verify branch is merged to main (git)
-   - ✅ Confirm GitHub PR is merged (via `gh` CLI)
-   - ✅ Ensure no unpushed commits exist
-3. **Only if ALL validations pass**: switches to main, pulls latest, deletes local and remote branches
-4. **If ANY validation fails**: stops immediately and reports why (does NOT delete)
-
-**Components:**
-- **Sub-agent**: `~/.claude/agents/branch-cleanup.md` (executes workflow)
-- **Skill**: `~/.claude/skills/post-merge-cleanup/SKILL.md` (auto-activation)
-
-**Safety Features:**
-- Never deletes unmerged branches (dual validation: git + GitHub)
-- Prevents data loss from uncommitted or unpushed work
-- Protected branch detection (never deletes main, master, develop, etc.)
-- Clear failure reporting with remediation steps
-- Fail-fast behavior (stops at first validation failure)
-
-**Edge Cases Handled:**
-- Squash/rebase merges (detects and provides manual cleanup instructions)
-- Remote branch already deleted by GitHub (gracefully handles)
-- GitHub CLI unavailable (falls back to git-only validation)
-
-**Documentation:** See `~/.claude/skills/post-merge-cleanup/README.md` for complete workflow details.
-
-#### Performance Testing Automation (NEW)
-
-**Purpose:** Intelligently run performance tests, detect regressions, compare with baselines, and generate comprehensive reports.
-
-**Activation:** When the user asks to "run performance tests", "check performance", or "test performance", the `performance-testing` skill automatically activates and delegates to the `perf-test-runner` sub-agent.
-
-**Trigger Phrases:**
-- "Run performance tests"
-- "Check performance"
-- "Run perf tests"
-- "Test performance"
-- "Check for performance regressions"
-
-**What Happens Automatically:**
-1. Intelligent script discovery (searches common locations and patterns):
-   - `./run-performance-tests.sh`
-   - `./scripts/run-performance-tests.sh`
-   - `./test/performance/run-tests.sh`
-   - `*performance*.sh`, `*perf*.sh` (project-wide search)
-2. Executes script with real-time output monitoring
-3. Analyzes results for regressions (keyword and metric-based)
-4. Compares with baseline if available (percentage-based thresholds)
-5. Generates comprehensive report highlighting regressions, improvements, and stable metrics
-6. Saves timestamped results to `.perf-results/` for history tracking
-
-**Components:**
-- **Sub-agent**: `~/.claude/agents/perf-test-runner.md` (executes workflow)
-- **Skill**: `~/.claude/skills/performance-testing/SKILL.md` (auto-activation)
-
-**Key Features:**
-- Smart script discovery with fallbacks
-- Real-time test execution monitoring
-- Dual regression detection (keywords + metric comparison)
-- Baseline management (create, update, compare)
-- Comprehensive reporting with actionable recommendations
-- Result persistence and trend analysis
-
-**Report Example:**
+# Authenticate
+coderabbit auth login
 ```
-📊 Performance Test Results
-
-Status: ⚠️ PASSED (with 2 regressions)
-
-Regressions:
-⚠️ API response time: 250ms → 320ms (+28%)
-⚠️ Memory usage: 512MB → 580MB (+13%)
-
-Improvements:
-✅ Database queries: 45ms → 38ms (-15%)
-
-Results: .perf-results/2025-10-23-145230.json
-```
-
-**Documentation:** See `~/.claude/skills/performance-testing/README.md` for complete workflow details.
-
-#### Automated Testing Workflow (NEW)
-
-**Purpose:** Execute the complete clean-build-test workflow for .NET solutions with automatic performance test exclusion.
-
-**Activation:** When the user asks to "run tests", "test", or "run integration tests", the `run-tests` skill automatically activates and delegates to the `test-runner` sub-agent.
-
-**Trigger Phrases:**
-- "Run tests"
-- "Test"
-- "Run integration tests"
-- "Clean, build and test"
-- "Execute tests"
-
-**What Happens Automatically:**
-1. Discovers .NET solution file in current or parent directory
-2. Cleans solution (both Debug and Release configurations)
-3. Builds solution (Release configuration)
-4. Discovers all test projects in solution
-5. Automatically excludes performance test projects (containing: Performance, Perf, Benchmark, LoadTest, StressTest)
-6. Runs all test projects (continues even if some fail to get complete picture)
-7. Generates comprehensive report with pass/fail details and exact failure locations
-
-**Components:**
-- **Sub-agent**: `~/.claude/agents/test-runner.md` (executes workflow)
-- **Skill**: `~/.claude/skills/run-tests/SKILL.md` (auto-activation)
-
-**Key Features:**
-- Complete clean-build-test workflow in one command
-- Automatic performance test exclusion
-- Continues running all tests even if some fail
-- Detailed failure reporting with file locations and line numbers
-- Summary statistics (total, passed, failed, percentage)
-- Integration tests included by default
-
-**Report Example:**
-```
-🧪 Test Execution Summary
-
-Status: ❌ FAILED
-
-✅ Infrastructure.Tests (247 passed)
-✅ Domain.Tests (89 passed)
-❌ Application.Tests (2 failed, 154 passed)
-
-Failed Tests:
-❌ UserService_Should_Validate_Email
-   Error: Expected true, got false
-   Location: UserServiceTests.cs:45
-
-Overall: 602/604 passed (99.7%)
-Action: Fix 2 failing tests before pushing
-```
-
-**Exclusions:** Performance test projects are automatically excluded. To run performance tests, use: "Run performance tests" (triggers the `performance-testing` skill instead).
-
-**Documentation:** See `~/.claude/skills/run-tests/README.md` for complete workflow details.
 
 ### Adding New Global Tools
 
