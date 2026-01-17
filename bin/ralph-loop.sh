@@ -621,10 +621,6 @@ run_implementation() {
         claude_args+=("$VERBOSE")
     fi
 
-    if [[ $iteration -gt 1 ]]; then
-        claude_args+=(--continue)
-    fi
-
     # Prompt goes as positional argument at the end
     claude_args+=("$prompt")
 
