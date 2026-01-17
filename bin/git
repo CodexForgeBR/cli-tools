@@ -39,43 +39,83 @@ check_process_tree() {
 
 # Function to check if command is destructive
 is_destructive_command() {
-    local args="$*"
+    local subcommand=""
+    local skip_next=0
+    local args=("$@")
 
-    # Tier 1: Critical blocklist
+    # Find the git subcommand (first non-flag argument after "git")
+    for i in "${!args[@]}"; do
+        local arg="${args[$i]}"
 
-    # 1. Bypass hooks (--no-verify or -n flag)
-    if [[ "$args" =~ --no-verify ]] || [[ "$args" =~ (^| )-n($| ) ]]; then
-        echo "BLOCKED: git commit --no-verify bypasses pre-commit hooks (Husky.Net validation)"
-        return 0
-    fi
+        # Skip "git" itself
+        [[ "$arg" == "git" ]] && continue
 
-    # 2. Hard reset
-    if [[ "$args" =~ reset.*--hard ]]; then
-        echo "BLOCKED: git reset --hard destroys uncommitted changes permanently"
-        return 0
-    fi
-
-    # 3. Clean (any variant: -f, -d, -x, combined flags)
-    if [[ "$args" =~ clean ]]; then
-        if [[ "$args" =~ -[fdxFDX] ]] || [[ "$args" =~ --force ]]; then
-            echo "BLOCKED: git clean -f/-d/-x deletes untracked/ignored files permanently"
-            return 0
-        fi
-    fi
-
-    # 4. Force push (--force or -f flag)
-    if [[ "$args" =~ push ]]; then
-        if [[ "$args" =~ --force($| ) ]] || [[ "$args" =~ (^| )-f($| ) ]]; then
-            echo "BLOCKED: git push --force rewrites remote history (dangerous on shared branches)"
-            return 0
+        # Skip flag values (for flags that take arguments)
+        if [[ $skip_next -eq 1 ]]; then
+            skip_next=0
+            continue
         fi
 
-        # 5. Force-with-lease (still rewrites history)
-        if [[ "$args" =~ --force-with-lease ]]; then
-            echo "BLOCKED: git push --force-with-lease still rewrites remote history"
-            return 0
+        # Skip flags, but mark if next arg should be skipped
+        if [[ "$arg" == -* ]]; then
+            # Flags that take a value: -m, -C, -c, -F, -S
+            if [[ "$arg" =~ ^-(m|C|c|F|S)$ ]]; then
+                skip_next=1
+            fi
+            continue
         fi
-    fi
+
+        # First positional argument is the subcommand
+        subcommand="$arg"
+        break
+    done
+
+    # Now check based on subcommand
+    case "$subcommand" in
+        commit)
+            # Check for --no-verify or -n (but not in combination with -m value)
+            for i in "${!args[@]}"; do
+                local arg="${args[$i]}"
+                [[ "$arg" == "--no-verify" ]] && {
+                    echo "BLOCKED: git commit --no-verify bypasses pre-commit hooks (Husky.Net validation)"
+                    return 0
+                }
+                # -n alone (not part of -nm or followed by message)
+                [[ "$arg" == "-n" ]] && {
+                    echo "BLOCKED: git commit -n bypasses pre-commit hooks (Husky.Net validation)"
+                    return 0
+                }
+            done
+            ;;
+        reset)
+            for arg in "${args[@]}"; do
+                [[ "$arg" == "--hard" ]] && {
+                    echo "BLOCKED: git reset --hard destroys uncommitted changes permanently"
+                    return 0
+                }
+            done
+            ;;
+        clean)
+            for arg in "${args[@]}"; do
+                if [[ "$arg" =~ ^-[fdxFDX]+$ ]] || [[ "$arg" == "--force" ]]; then
+                    echo "BLOCKED: git clean -f/-d/-x deletes untracked/ignored files permanently"
+                    return 0
+                fi
+            done
+            ;;
+        push)
+            for arg in "${args[@]}"; do
+                [[ "$arg" == "--force" || "$arg" == "-f" ]] && {
+                    echo "BLOCKED: git push --force rewrites remote history (dangerous on shared branches)"
+                    return 0
+                }
+                [[ "$arg" == "--force-with-lease" ]] && {
+                    echo "BLOCKED: git push --force-with-lease still rewrites remote history"
+                    return 0
+                }
+            done
+            ;;
+    esac
 
     # Not destructive
     return 1
