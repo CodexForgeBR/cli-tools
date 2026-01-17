@@ -949,6 +949,95 @@ except:
 " 2>/dev/null || echo "-1"
 }
 
+# Run claude with timeout and zombie detection
+# Args: output_file timeout_seconds claude_args...
+# Returns: 0 on success, 1 on failure
+run_claude_with_timeout() {
+    local output_file="$1"
+    local timeout_secs="$2"
+    shift 2
+    local -a claude_args=("$@")
+
+    local max_retries=3
+    local retry_delay=5
+    local attempt=1
+
+    while [[ $attempt -le $max_retries ]]; do
+        log_info "Claude attempt $attempt/$max_retries (timeout: ${timeout_secs}s)..." >&2
+
+        # Clear output file
+        > "$output_file"
+
+        # Run claude in background
+        claude "${claude_args[@]}" > "$output_file" 2>&1 &
+        local claude_pid=$!
+
+        local elapsed=0
+        local last_size=0
+        local stall_time=0
+        local stall_limit=60  # Kill if no output for 60 seconds
+
+        while kill -0 "$claude_pid" 2>/dev/null; do
+            sleep 5
+            elapsed=$((elapsed + 5))
+
+            # Check for zombie error in output
+            if grep -q "No messages returned" "$output_file" 2>/dev/null; then
+                log_warn "Detected 'No messages returned' - killing zombie process" >&2
+                kill -9 "$claude_pid" 2>/dev/null || true
+                wait "$claude_pid" 2>/dev/null || true
+                break
+            fi
+
+            # Check for output activity
+            local current_size
+            current_size=$(stat -c%s "$output_file" 2>/dev/null || echo "0")
+
+            if [[ "$current_size" -eq "$last_size" ]]; then
+                stall_time=$((stall_time + 5))
+                if [[ $stall_time -ge $stall_limit ]]; then
+                    log_warn "No output for ${stall_limit}s - killing hung process" >&2
+                    kill -9 "$claude_pid" 2>/dev/null || true
+                    wait "$claude_pid" 2>/dev/null || true
+                    break
+                fi
+            else
+                stall_time=0
+                last_size=$current_size
+            fi
+
+            # Hard timeout
+            if [[ $elapsed -ge $timeout_secs ]]; then
+                log_warn "Hard timeout (${timeout_secs}s) - killing process" >&2
+                kill -9 "$claude_pid" 2>/dev/null || true
+                wait "$claude_pid" 2>/dev/null || true
+                break
+            fi
+        done
+
+        # Check result
+        wait "$claude_pid" 2>/dev/null
+        local exit_code=$?
+
+        # Success if exited cleanly without zombie error
+        if [[ $exit_code -eq 0 ]] && ! grep -q "No messages returned" "$output_file" 2>/dev/null; then
+            return 0
+        fi
+
+        # Retry
+        if [[ $attempt -lt $max_retries ]]; then
+            log_warn "Attempt $attempt failed. Retrying in ${retry_delay}s..." >&2
+            sleep "$retry_delay"
+            retry_delay=$((retry_delay * 2))
+        fi
+
+        attempt=$((attempt + 1))
+    done
+
+    log_error "Claude failed after $max_retries attempts" >&2
+    return 1
+}
+
 # Run implementation phase
 run_implementation() {
     local iteration=$1
@@ -977,18 +1066,18 @@ run_implementation() {
 
     log_info "Running claude..." >&2
 
-    # Run claude with tee to show output AND save to file
+    # Run claude with timeout and zombie detection
     set +e  # Temporarily disable exit on error
-    claude "${claude_args[@]}" 2>&1 | tee "$output_file" >&2
-    local claude_exit=$?
-    set -e  # Re-enable exit on error
-
-    if [[ $claude_exit -eq 0 ]]; then
+    if run_claude_with_timeout "$output_file" 600 "${claude_args[@]}"; then
         log_success "Implementation phase completed" >&2
     else
-        log_error "Implementation phase failed with exit code $claude_exit" >&2
+        log_error "Implementation phase failed - see output file for details" >&2
         log_warn "Check if claude CLI is working: claude --print 'hello'" >&2
     fi
+    set -e  # Re-enable exit on error
+
+    # Display output
+    cat "$output_file" >&2
 
     save_iteration_state "$iteration" "implementation" "$output_file"
     log_summary "Iteration $iteration: Implementation phase completed"
@@ -1028,18 +1117,18 @@ run_validation() {
 
     log_info "Running validation..." >&2
 
-    # Run claude with tee to show output AND save to file (output to stderr for display)
+    # Run claude with timeout and zombie detection
     set +e  # Temporarily disable exit on error
-    claude "${claude_args[@]}" 2>&1 | tee "$output_file" >&2
-    local claude_exit=$?
-    set -e  # Re-enable exit on error
-
-    if [[ $claude_exit -eq 0 ]]; then
+    if run_claude_with_timeout "$output_file" 600 "${claude_args[@]}"; then
         log_success "Validation phase completed" >&2
     else
-        log_error "Validation phase failed with exit code $claude_exit" >&2
+        log_error "Validation phase failed - see output file for details" >&2
         log_warn "Check if claude CLI is working: claude --print 'hello'" >&2
     fi
+    set -e  # Re-enable exit on error
+
+    # Display output
+    cat "$output_file" >&2
 
     save_iteration_state "$iteration" "validation" "$output_file"
     log_summary "Iteration $iteration: Validation phase completed"
