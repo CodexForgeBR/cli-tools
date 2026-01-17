@@ -588,10 +588,16 @@ run_implementation() {
     log_info "Running claude..." >&2
 
     # Run claude with tee to show output AND save to file
-    if claude "${claude_args[@]}" 2>&1 | tee "$output_file" >&2; then
+    set +e  # Temporarily disable exit on error
+    claude "${claude_args[@]}" 2>&1 | tee "$output_file" >&2
+    local claude_exit=$?
+    set -e  # Re-enable exit on error
+
+    if [[ $claude_exit -eq 0 ]]; then
         log_success "Implementation phase completed" >&2
     else
-        log_warn "Implementation phase exited with non-zero status" >&2
+        log_error "Implementation phase failed with exit code $claude_exit" >&2
+        log_warn "Check if claude CLI is working: claude --print 'hello'" >&2
     fi
 
     save_iteration_state "$iteration" "implementation" "$output_file"
@@ -633,10 +639,16 @@ run_validation() {
     log_info "Running validation..." >&2
 
     # Run claude with tee to show output AND save to file (output to stderr for display)
-    if claude "${claude_args[@]}" 2>&1 | tee "$output_file" >&2; then
+    set +e  # Temporarily disable exit on error
+    claude "${claude_args[@]}" 2>&1 | tee "$output_file" >&2
+    local claude_exit=$?
+    set -e  # Re-enable exit on error
+
+    if [[ $claude_exit -eq 0 ]]; then
         log_success "Validation phase completed" >&2
     else
-        log_warn "Validation phase exited with non-zero status" >&2
+        log_error "Validation phase failed with exit code $claude_exit" >&2
+        log_warn "Check if claude CLI is working: claude --print 'hello'" >&2
     fi
 
     save_iteration_state "$iteration" "validation" "$output_file"
