@@ -30,6 +30,7 @@ STATE_DIR=".ralph-loop"
 SCRIPT_START_TIME=""
 ITERATION_START_TIME=""
 SESSION_ID=""
+CURRENT_ITERATION=0  # Global iteration counter for cleanup handler
 
 # Resume-related flags
 RESUME_FLAG=""
@@ -60,8 +61,7 @@ cleanup() {
     echo -e "\n${YELLOW}Interrupted! Saving state...${NC}"
 
     # Save state with current iteration and phase
-    local current_iter=${ITERATION:-0}
-    save_state "INTERRUPTED" "$current_iter"
+    save_state "INTERRUPTED" "$CURRENT_ITERATION"
 
     echo -e "${GREEN}State saved to ${STATE_DIR}/${NC}"
     echo -e "${CYAN}Run '$(basename "$0") --resume' to continue where you left off${NC}"
@@ -973,9 +973,6 @@ run_claude_with_timeout() {
         local claude_pid=$!
 
         local elapsed=0
-        local last_size=0
-        local stall_time=0
-        local stall_limit=60  # Kill if no output for 60 seconds
 
         while kill -0 "$claude_pid" 2>/dev/null; do
             sleep 5
@@ -987,23 +984,6 @@ run_claude_with_timeout() {
                 kill -9 "$claude_pid" 2>/dev/null || true
                 wait "$claude_pid" 2>/dev/null || true
                 break
-            fi
-
-            # Check for output activity
-            local current_size
-            current_size=$(stat -c%s "$output_file" 2>/dev/null || echo "0")
-
-            if [[ "$current_size" -eq "$last_size" ]]; then
-                stall_time=$((stall_time + 5))
-                if [[ $stall_time -ge $stall_limit ]]; then
-                    log_warn "No output for ${stall_limit}s - killing hung process" >&2
-                    kill -9 "$claude_pid" 2>/dev/null || true
-                    wait "$claude_pid" 2>/dev/null || true
-                    break
-                fi
-            else
-                stall_time=0
-                last_size=$current_size
             fi
 
             # Hard timeout
@@ -1068,7 +1048,7 @@ run_implementation() {
 
     # Run claude with timeout and zombie detection
     set +e  # Temporarily disable exit on error
-    if run_claude_with_timeout "$output_file" 600 "${claude_args[@]}"; then
+    if run_claude_with_timeout "$output_file" 1800 "${claude_args[@]}"; then
         log_success "Implementation phase completed" >&2
     else
         log_error "Implementation phase failed - see output file for details" >&2
@@ -1119,7 +1099,7 @@ run_validation() {
 
     # Run claude with timeout and zombie detection
     set +e  # Temporarily disable exit on error
-    if run_claude_with_timeout "$output_file" 600 "${claude_args[@]}"; then
+    if run_claude_with_timeout "$output_file" 1800 "${claude_args[@]}"; then
         log_success "Validation phase completed" >&2
     else
         log_error "Validation phase failed - see output file for details" >&2
@@ -1223,6 +1203,7 @@ PYTHON_EOF
 
             # Restore from loaded state
             iteration=$ITERATION
+            CURRENT_ITERATION=$ITERATION  # Update global for cleanup handler
             feedback="$LAST_FEEDBACK"
             resuming=1
 
@@ -1316,6 +1297,7 @@ PYTHON_EOF
             fi
         else
             iteration=$((iteration + 1))
+            CURRENT_ITERATION=$iteration  # Update global for cleanup handler
         fi
 
         # Run normal iteration flow if not skipping implementation
