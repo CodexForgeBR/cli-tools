@@ -29,6 +29,18 @@ VERBOSE=""
 STATE_DIR=".ralph-loop"
 SCRIPT_START_TIME=""
 ITERATION_START_TIME=""
+SESSION_ID=""
+
+# Resume-related flags
+RESUME_FLAG=""
+RESUME_FORCE=""
+CLEAN_FLAG=""
+STATUS_FLAG=""
+OVERRIDE_MODELS=""
+
+# State tracking for resume
+CURRENT_PHASE=""
+LAST_FEEDBACK=""
 
 # Colors for output
 RED='\033[0;31m'
@@ -46,8 +58,13 @@ MAX_NO_PROGRESS=3
 # Cleanup handler for graceful shutdown
 cleanup() {
     echo -e "\n${YELLOW}Interrupted! Saving state...${NC}"
-    save_state "INTERRUPTED"
+
+    # Save state with current iteration and phase
+    local current_iter=${ITERATION:-0}
+    save_state "INTERRUPTED" "$current_iter"
+
     echo -e "${GREEN}State saved to ${STATE_DIR}/${NC}"
+    echo -e "${CYAN}Run '$(basename "$0") --resume' to continue where you left off${NC}"
     exit 130
 }
 
@@ -108,9 +125,18 @@ Options:
   -v, --verbose              Pass verbose flag to claude code cli
   --max-iterations N         Maximum loop iterations (default: 20)
   --implementation-model M   Model for implementation (default: opus)
-  --validation-model M       Model for validation (default: sonnet)
+  --validation-model M       Model for validation (default: opus)
   --tasks-file PATH          Path to tasks.md (auto-detects if not specified)
+  --resume                   Resume from last interrupted session
+  --resume-force             Resume even if tasks.md has changed
+  --clean                    Start fresh, delete existing .ralph-loop state
+  --status                   Show current session status without running
   -h, --help                 Show this help message
+
+Session Management:
+  When a session is interrupted (Ctrl+C), state is automatically saved.
+  Running the script again will detect the interrupted session and prompt you
+  to either resume or start fresh.
 
 Exit Codes:
   0 - All tasks completed successfully
@@ -123,6 +149,9 @@ Examples:
   $(basename "$0") --max-iterations 10
   $(basename "$0") --implementation-model sonnet --validation-model haiku
   $(basename "$0") --tasks-file specs/feature/tasks.md -v
+  $(basename "$0") --resume
+  $(basename "$0") --status
+  $(basename "$0") --clean
 EOF
 }
 
@@ -148,6 +177,7 @@ parse_args() {
                     exit 1
                 fi
                 IMPL_MODEL=$2
+                OVERRIDE_MODELS="1"
                 shift 2
                 ;;
             --validation-model)
@@ -156,6 +186,7 @@ parse_args() {
                     exit 1
                 fi
                 VAL_MODEL=$2
+                OVERRIDE_MODELS="1"
                 shift 2
                 ;;
             --tasks-file)
@@ -165,6 +196,23 @@ parse_args() {
                 fi
                 TASKS_FILE=$2
                 shift 2
+                ;;
+            --resume)
+                RESUME_FLAG="1"
+                shift
+                ;;
+            --resume-force)
+                RESUME_FLAG="1"
+                RESUME_FORCE="1"
+                shift
+                ;;
+            --clean)
+                CLEAN_FLAG="1"
+                shift
+                ;;
+            --status)
+                STATUS_FLAG="1"
+                shift
                 ;;
             -h|--help)
                 usage
@@ -240,11 +288,272 @@ count_checked_tasks() {
     echo "$count"
 }
 
+# Compute SHA256 hash of tasks.md file
+compute_tasks_hash() {
+    local file=$1
+    if [[ ! -f "$file" ]]; then
+        echo ""
+        return 1
+    fi
+    sha256sum "$file" | awk '{print $1}'
+}
+
+# Load state from current-state.json into shell variables
+load_state() {
+    local state_file="$STATE_DIR/current-state.json"
+
+    if [[ ! -f "$state_file" ]]; then
+        return 1
+    fi
+
+    # Use Python to parse JSON and output shell variable assignments
+    eval "$(python3 - "$state_file" << 'PYTHON_EOF'
+import sys
+import json
+import base64
+
+try:
+    with open(sys.argv[1], 'r') as f:
+        state = json.load(f)
+
+    # Export variables safely
+    print(f"SCRIPT_START_TIME='{state.get('started_at', '')}'")
+    print(f"ITERATION={state.get('iteration', 0)}")
+    print(f"CURRENT_PHASE='{state.get('phase', '')}'")
+
+    # Encode feedback as base64 to avoid quote escaping issues
+    feedback = state.get('last_feedback', '')
+    feedback_b64 = base64.b64encode(feedback.encode('utf-8')).decode('ascii')
+    print(f"LAST_FEEDBACK_B64='{feedback_b64}'")
+
+    print(f"SESSION_ID='{state.get('session_id', '')}'")
+
+    circuit = state.get('circuit_breaker', {})
+    print(f"NO_PROGRESS_COUNT={circuit.get('no_progress_count', 0)}")
+    print(f"LAST_CHECKED_COUNT={circuit.get('last_unchecked_count', 0)}")
+
+    # Store tasks file hash for validation
+    print(f"STORED_TASKS_HASH='{state.get('tasks_file_hash', '')}'")
+
+    sys.exit(0)
+except Exception as e:
+    print(f"# Error loading state: {e}", file=sys.stderr)
+    sys.exit(1)
+PYTHON_EOF
+)"
+
+    # Decode base64 feedback
+    if [[ -n "$LAST_FEEDBACK_B64" ]]; then
+        LAST_FEEDBACK=$(echo "$LAST_FEEDBACK_B64" | base64 -d)
+    fi
+
+    return $?
+}
+
+# Validate state integrity
+validate_state() {
+    local state_file="$STATE_DIR/current-state.json"
+
+    if [[ ! -f "$state_file" ]]; then
+        echo "No state file found"
+        return 1
+    fi
+
+    # Check if tasks.md exists
+    if [[ ! -f "$TASKS_FILE" ]]; then
+        echo "Tasks file no longer exists: $TASKS_FILE"
+        return 1
+    fi
+
+    # Check tasks.md hash if not forcing
+    if [[ -z "$RESUME_FORCE" ]]; then
+        local current_hash
+        current_hash=$(compute_tasks_hash "$TASKS_FILE")
+
+        if [[ -n "$STORED_TASKS_HASH" && "$current_hash" != "$STORED_TASKS_HASH" ]]; then
+            echo "Tasks file has been modified since session was interrupted"
+            return 2
+        fi
+    fi
+
+    return 0
+}
+
+# Recover feedback from validation output or state
+recover_feedback() {
+    local iteration=$1
+
+    # Try to load from state first
+    if [[ -n "$LAST_FEEDBACK" ]]; then
+        echo "$LAST_FEEDBACK"
+        return 0
+    fi
+
+    # Try to extract from last validation output
+    local val_file="$STATE_DIR/val-output-${iteration}.txt"
+    if [[ -f "$val_file" ]]; then
+        local val_json
+        val_json=$(extract_json_from_file "$val_file" "RALPH_VALIDATION") || true
+
+        if [[ -n "$val_json" ]]; then
+            parse_feedback "$val_json"
+            return 0
+        fi
+    fi
+
+    echo ""
+}
+
+# Show resume summary and ask for confirmation
+show_resume_summary() {
+    local iteration=$1
+    local phase=$2
+    local status=$3
+
+    echo -e "\n${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║              PREVIOUS SESSION DETECTED                        ║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+
+    echo "A previous Ralph Loop session was interrupted."
+    echo "  Status:    $status"
+    echo "  Iteration: $iteration"
+    echo "  Phase:     $phase"
+    echo ""
+
+    if [[ -n "$RESUME_FORCE" && -n "$STORED_TASKS_HASH" ]]; then
+        local current_hash
+        current_hash=$(compute_tasks_hash "$TASKS_FILE")
+        if [[ "$current_hash" != "$STORED_TASKS_HASH" ]]; then
+            log_warn "Tasks file has been modified (--resume-force active)"
+        fi
+    fi
+
+    echo "Resuming from iteration $iteration, phase: $phase"
+    echo ""
+}
+
+# Check for existing state and prompt user
+check_existing_state() {
+    local state_file="$STATE_DIR/current-state.json"
+
+    # No state file - fresh start
+    if [[ ! -f "$state_file" ]]; then
+        return 0
+    fi
+
+    # Load state to check status
+    local stored_status
+    stored_status=$(python3 - "$state_file" << 'PYTHON_EOF'
+import sys
+import json
+
+try:
+    with open(sys.argv[1], 'r') as f:
+        state = json.load(f)
+    print(state.get('status', 'UNKNOWN'))
+except:
+    print('ERROR')
+PYTHON_EOF
+)
+
+    # If status is COMPLETE, allow fresh start
+    if [[ "$stored_status" == "COMPLETE" ]]; then
+        return 0
+    fi
+
+    # If --resume or --resume-force specified, we're good
+    if [[ -n "$RESUME_FLAG" || -n "$RESUME_FORCE" ]]; then
+        return 0
+    fi
+
+    # If --clean specified, remove state dir
+    if [[ -n "$CLEAN_FLAG" ]]; then
+        return 0
+    fi
+
+    # Otherwise, prompt user
+    echo -e "\n${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║              PREVIOUS SESSION DETECTED                        ║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+
+    echo "A previous Ralph Loop session was interrupted."
+    echo "  Status:    $stored_status"
+    echo ""
+    echo "Options:"
+    echo "  $(basename "$0") --resume        Resume from where you left off"
+    echo "  $(basename "$0") --clean         Start fresh (discards previous state)"
+    echo "  $(basename "$0") --status        View detailed session status"
+    echo ""
+
+    exit 1
+}
+
+# Show status of current session
+show_status() {
+    local state_file="$STATE_DIR/current-state.json"
+
+    if [[ ! -f "$state_file" ]]; then
+        echo "No active or previous Ralph Loop session found."
+        exit 0
+    fi
+
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║                  RALPH LOOP SESSION STATUS                    ║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+
+    # Parse and display state using Python
+    python3 - "$state_file" << 'PYTHON_EOF'
+import sys
+import json
+from datetime import datetime
+
+try:
+    with open(sys.argv[1], 'r') as f:
+        state = json.load(f)
+
+    print(f"Session ID:           {state.get('session_id', 'N/A')}")
+    print(f"Status:               {state.get('status', 'UNKNOWN')}")
+    print(f"Iteration:            {state.get('iteration', 0)}")
+    print(f"Phase:                {state.get('phase', 'N/A')}")
+    print(f"Started:              {state.get('started_at', 'N/A')}")
+    print(f"Last Updated:         {state.get('last_updated', 'N/A')}")
+    print(f"Tasks File:           {state.get('tasks_file', 'N/A')}")
+    print(f"Implementation Model: {state.get('implementation_model', 'N/A')}")
+    print(f"Validation Model:     {state.get('validation_model', 'N/A')}")
+    print(f"Max Iterations:       {state.get('max_iterations', 'N/A')}")
+
+    circuit = state.get('circuit_breaker', {})
+    if circuit:
+        print(f"\nCircuit Breaker:")
+        print(f"  No Progress Count:  {circuit.get('no_progress_count', 0)}")
+        print(f"  Last Unchecked:     {circuit.get('last_unchecked_count', 0)}")
+
+    feedback = state.get('last_feedback', '')
+    if feedback:
+        print(f"\nLast Feedback:")
+        print(f"  {feedback[:100]}{'...' if len(feedback) > 100 else ''}")
+
+except Exception as e:
+    print(f"Error reading state: {e}")
+    sys.exit(1)
+PYTHON_EOF
+
+    echo ""
+    exit 0
+}
+
 # Initialize state directory
 init_state_dir() {
     mkdir -p "$STATE_DIR"
-    echo "{\"started_at\": \"$(date -Iseconds)\", \"iteration\": 0, \"status\": \"running\"}" > "$STATE_DIR/current-state.json"
+
+    # Generate session ID
+    SESSION_ID="ralph-$(date +%Y%m%d-%H%M%S)"
+
+    # Create initial state with enhanced schema
+    save_state "INITIALIZING" 0
+
     log_info "State directory initialized: $STATE_DIR"
+    log_info "Session ID: $SESSION_ID"
 }
 
 # Save iteration state
@@ -266,22 +575,47 @@ save_iteration_state() {
     fi
 }
 
-# Save current state
+# Save current state with enhanced schema
 save_state() {
     local status=$1
     local iteration=${2:-0}
     local verdict=${3:-""}
 
+    # Set started_at if this is first save (INITIALIZING)
+    if [[ "$status" == "INITIALIZING" && -z "$SCRIPT_START_TIME" ]]; then
+        SCRIPT_START_TIME=$(date -Iseconds)
+    fi
+
+    # Compute tasks file hash if file exists
+    local tasks_hash=""
+    if [[ -f "$TASKS_FILE" ]]; then
+        tasks_hash=$(compute_tasks_hash "$TASKS_FILE")
+    fi
+
+    # Escape feedback for JSON
+    local escaped_feedback
+    escaped_feedback=$(echo "$LAST_FEEDBACK" | python3 -c "import sys, json; print(json.dumps(sys.stdin.read()))" | sed 's/^"//; s/"$//')
+
     cat > "$STATE_DIR/current-state.json" << EOF
 {
-    "started_at": "$(date -Iseconds)",
+    "schema_version": 2,
+    "session_id": "$SESSION_ID",
+    "started_at": "$SCRIPT_START_TIME",
     "last_updated": "$(date -Iseconds)",
     "iteration": $iteration,
     "status": "$status",
+    "phase": "$CURRENT_PHASE",
     "verdict": "$verdict",
     "tasks_file": "$TASKS_FILE",
+    "tasks_file_hash": "$tasks_hash",
     "implementation_model": "$IMPL_MODEL",
-    "validation_model": "$VAL_MODEL"
+    "validation_model": "$VAL_MODEL",
+    "max_iterations": $MAX_ITERATIONS,
+    "circuit_breaker": {
+        "no_progress_count": $NO_PROGRESS_COUNT,
+        "last_unchecked_count": ${LAST_CHECKED_COUNT:-0}
+    },
+    "last_feedback": "$escaped_feedback"
 }
 EOF
 }
@@ -700,6 +1034,23 @@ run_validation() {
 main() {
     parse_args "$@"
 
+    # Handle --status flag first
+    if [[ -n "$STATUS_FLAG" ]]; then
+        show_status
+        # show_status exits
+    fi
+
+    # Handle --clean flag
+    if [[ -n "$CLEAN_FLAG" ]]; then
+        if [[ -d "$STATE_DIR" ]]; then
+            log_info "Cleaning state directory: $STATE_DIR"
+            rm -rf "$STATE_DIR"
+            log_success "State directory removed"
+        else
+            log_info "No state directory to clean"
+        fi
+    fi
+
     echo -e "${CYAN}"
     echo "╔═══════════════════════════════════════════════════════════════╗"
     echo "║                     RALPH LOOP                                ║"
@@ -711,51 +1062,178 @@ main() {
     TASKS_FILE=$(find_tasks_file) || exit 1
     log_info "Tasks file: $TASKS_FILE"
 
+    # Declare iteration variable at function scope
+    local iteration=0
+    local feedback=""
+    local last_unchecked
+    local resuming=0
+
+    # Check for existing state before doing anything else
+    check_existing_state
+
+    # If we're resuming, load the state
+    if [[ -n "$RESUME_FLAG" || -n "$RESUME_FORCE" ]]; then
+        if load_state; then
+            log_info "Loading previous session state..."
+
+            # Validate state integrity (disable set -e temporarily)
+            local validation_error
+            set +e
+            validation_error=$(validate_state 2>&1)
+            local validation_result=$?
+            set -e
+
+            if [[ $validation_result -eq 2 && -z "$RESUME_FORCE" ]]; then
+                # Tasks file modified, need --resume-force
+                echo -e "\n${YELLOW}╔═══════════════════════════════════════════════════════════════╗${NC}"
+                echo -e "${YELLOW}║              TASKS FILE MODIFIED                              ║${NC}"
+                echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+                echo "The tasks.md file has changed since the session was interrupted."
+                echo ""
+                echo "Options:"
+                echo "  $(basename "$0") --resume-force   Resume with modified file"
+                echo "  $(basename "$0") --clean          Start fresh with new file"
+                echo ""
+                exit 1
+            elif [[ $validation_result -ne 0 && $validation_result -ne 2 ]]; then
+                log_error "State validation failed: $validation_error"
+                log_error "Cannot resume. Use --clean to start fresh."
+                exit 1
+            fi
+
+            # Show resume summary
+            local stored_status
+            stored_status=$(python3 - "$STATE_DIR/current-state.json" << 'PYTHON_EOF'
+import sys, json
+try:
+    with open(sys.argv[1], 'r') as f:
+        state = json.load(f)
+    print(state.get('status', 'UNKNOWN'))
+except:
+    print('UNKNOWN')
+PYTHON_EOF
+)
+            show_resume_summary "$ITERATION" "$CURRENT_PHASE" "$stored_status"
+
+            # Restore from loaded state
+            iteration=$ITERATION
+            feedback="$LAST_FEEDBACK"
+            resuming=1
+
+            log_info "Resumed from iteration $iteration, phase: $CURRENT_PHASE"
+
+            # If models were overridden via command line, use them
+            if [[ -z "$OVERRIDE_MODELS" ]]; then
+                log_info "Using models from saved state"
+            else
+                log_info "Using models from command line (overriding saved state)"
+            fi
+        else
+            log_error "Failed to load state file"
+            exit 1
+        fi
+    fi
+
     # Count initial tasks
     local initial_unchecked
     local initial_checked
     initial_unchecked=$(count_unchecked_tasks "$TASKS_FILE")
     initial_checked=$(count_checked_tasks "$TASKS_FILE")
 
-    log_info "Initial state: $initial_checked checked, $initial_unchecked unchecked"
+    log_info "Current state: $initial_checked checked, $initial_unchecked unchecked"
 
     if [[ "$initial_unchecked" -eq 0 ]]; then
         log_success "All tasks already completed!"
         exit 0
     fi
 
-    # Initialize state
-    init_state_dir
-    log_summary "Started Ralph Loop with $initial_unchecked unchecked tasks"
-    log_summary "Implementation model: $IMPL_MODEL, Validation model: $VAL_MODEL"
+    # Initialize state if not resuming
+    if [[ $resuming -eq 0 ]]; then
+        init_state_dir
+        log_summary "Started Ralph Loop with $initial_unchecked unchecked tasks"
+        log_summary "Implementation model: $IMPL_MODEL, Validation model: $VAL_MODEL"
+
+        SCRIPT_START_TIME=$(get_timestamp)
+        last_unchecked=$initial_unchecked
+    else
+        # Resuming - use existing state
+        log_summary "Resumed Ralph Loop at iteration $iteration"
+        last_unchecked=${LAST_CHECKED_COUNT:-$initial_unchecked}
+
+        # Convert started_at from ISO format to timestamp if needed
+        if [[ "$SCRIPT_START_TIME" =~ ^[0-9]{4}- ]]; then
+            SCRIPT_START_TIME=$(date -d "$SCRIPT_START_TIME" +%s 2>/dev/null || get_timestamp)
+        fi
+    fi
 
     log_info "Max iterations: $MAX_ITERATIONS"
     log_info "Implementation model: $IMPL_MODEL"
     log_info "Validation model: $VAL_MODEL"
 
-    SCRIPT_START_TIME=$(get_timestamp)
-
-    local iteration=0
-    local feedback=""
-    local last_unchecked=$initial_unchecked
-
     while [[ $iteration -lt $MAX_ITERATIONS ]]; do
-        iteration=$((iteration + 1))
-        ITERATION_START_TIME=$(get_timestamp)
+        # Declare output file variables at loop scope
+        local impl_output_file=""
+        local val_output_file=""
+        local skip_implementation=0
 
-        echo -e "\n${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
-        echo -e "${YELLOW}                    ITERATION $iteration / $MAX_ITERATIONS${NC}"
-        echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}\n"
+        # If resuming and we're at the saved iteration, handle phase-aware resumption
+        if [[ $resuming -eq 1 && $iteration -eq $ITERATION ]]; then
+            resuming=0  # Only resume once
 
-        save_state "running" "$iteration"
+            if [[ "$CURRENT_PHASE" == "validation" ]]; then
+                # Skip to validation if we were interrupted during validation
+                impl_output_file="$STATE_DIR/impl-output-${iteration}.txt"
 
-        # Run implementation
-        local impl_output_file
-        impl_output_file=$(run_implementation "$iteration" "$feedback")
+                if [[ -f "$impl_output_file" ]]; then
+                    log_info "Resuming at validation phase (implementation already completed)"
+                    skip_implementation=1
 
-        # Run validation
-        local val_output_file
-        val_output_file=$(run_validation "$iteration" "$impl_output_file")
+                    ITERATION_START_TIME=$(get_timestamp)
+
+                    echo -e "\n${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
+                    echo -e "${YELLOW}          ITERATION $iteration / $MAX_ITERATIONS (RESUMED)${NC}"
+                    echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}\n"
+
+                    # Save state before validation
+                    CURRENT_PHASE="validation"
+                    save_state "running" "$iteration"
+
+                    # Run validation
+                    val_output_file=$(run_validation "$iteration" "$impl_output_file")
+
+                    # Continue to verdict parsing below
+                else
+                    log_warn "Implementation output not found, restarting iteration from implementation"
+                fi
+            else
+                log_info "Resuming at implementation phase"
+            fi
+        else
+            iteration=$((iteration + 1))
+        fi
+
+        # Run normal iteration flow if not skipping implementation
+        if [[ $skip_implementation -eq 0 ]]; then
+            ITERATION_START_TIME=$(get_timestamp)
+
+            echo -e "\n${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
+            echo -e "${YELLOW}                    ITERATION $iteration / $MAX_ITERATIONS${NC}"
+            echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}\n"
+
+            # Save state before implementation
+            CURRENT_PHASE="implementation"
+            save_state "running" "$iteration"
+
+            # Run implementation
+            impl_output_file=$(run_implementation "$iteration" "$feedback")
+
+            # Save state before validation
+            CURRENT_PHASE="validation"
+            save_state "running" "$iteration"
+
+            # Run validation
+            val_output_file=$(run_validation "$iteration" "$impl_output_file")
+        fi
 
         # Parse validation output
         local val_json
@@ -773,6 +1251,7 @@ main() {
                 local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
 
                 log_success "All tasks appear to be checked off"
+                CURRENT_PHASE="complete"
                 save_state "COMPLETE" "$iteration" "COMPLETE"
                 log_summary "Completed after $iteration iterations in $(format_duration $total_elapsed) (fallback check)"
 
@@ -787,6 +1266,7 @@ main() {
             fi
 
             feedback="Validation did not provide structured output. $current_unchecked tasks remain unchecked. Please continue implementation."
+            LAST_FEEDBACK="$feedback"  # Store for state saving
             continue
         fi
 
@@ -810,6 +1290,7 @@ main() {
                     local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
 
                     log_success "All tasks completed and verified!"
+                    CURRENT_PHASE="complete"
                     save_state "COMPLETE" "$iteration" "COMPLETE"
                     log_summary "SUCCESS: All tasks completed after $iteration iterations in $(format_duration $total_elapsed)"
 
@@ -824,11 +1305,13 @@ main() {
                 else
                     log_warn "Validator said COMPLETE but $final_unchecked tasks still unchecked"
                     feedback="Validator incorrectly claimed completion. $final_unchecked tasks still unchecked. Continue implementation."
+                    LAST_FEEDBACK="$feedback"  # Store for state saving
                 fi
                 ;;
 
             NEEDS_MORE_WORK)
                 feedback=$(parse_feedback "$val_json")
+                LAST_FEEDBACK="$feedback"  # Store for state saving
                 log_info "Feedback: $feedback"
 
                 # Circuit breaker check
@@ -842,6 +1325,7 @@ main() {
                     if [[ $NO_PROGRESS_COUNT -ge $MAX_NO_PROGRESS ]]; then
                         local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
                         log_error "Circuit breaker: $MAX_NO_PROGRESS iterations with no progress"
+                        CURRENT_PHASE="circuit_breaker"
                         save_state "CIRCUIT_BREAKER" "$iteration" "NEEDS_MORE_WORK"
                         log_summary "CIRCUIT BREAKER: No progress for $MAX_NO_PROGRESS iterations ($(format_duration $total_elapsed))"
                         log_info "Total time: $(format_duration $total_elapsed)"
@@ -857,7 +1341,9 @@ main() {
                 local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
                 log_error "Validator requested escalation - human intervention needed"
                 feedback=$(parse_feedback "$val_json")
+                LAST_FEEDBACK="$feedback"  # Store for state saving
                 log_info "Escalation reason: $feedback"
+                CURRENT_PHASE="escalated"
                 save_state "ESCALATED" "$iteration" "ESCALATE"
                 log_summary "ESCALATED: $feedback ($(format_duration $total_elapsed))"
 
@@ -875,8 +1361,12 @@ main() {
             *)
                 log_warn "Unknown verdict: $verdict, continuing"
                 feedback="Validation returned unclear verdict ($verdict). Please continue with remaining tasks."
+                LAST_FEEDBACK="$feedback"  # Store for state saving
                 ;;
         esac
+
+        # Update last_unchecked_count for state saving
+        LAST_CHECKED_COUNT=$(count_unchecked_tasks "$TASKS_FILE")
 
         # Display iteration elapsed time
         local iter_elapsed=$(($(get_timestamp) - ITERATION_START_TIME))

@@ -167,6 +167,147 @@ Commands are logged to `~/.git-wrapper-debug.log` with process tree analysis and
 **Installation Note:**
 The wrapper works automatically once `~/source/cli-tools/bin` is added to PATH (it appears before `/opt/homebrew/bin`, creating an override).
 
+### `ralph-loop.sh`
+
+**Dual-Model Validation Loop** for Spec-Driven Development based on the Ralph Wiggum technique by Geoffrey Huntley (May 2025).
+
+**What It Does:**
+- Implements tasks from a `tasks.md` specification file using one Claude model
+- Validates the work using a different Claude model to catch "lies" and incomplete work
+- Loops until all tasks are completed or max iterations reached
+- Supports intelligent session resumption if interrupted
+
+**Basic Usage:**
+```bash
+# Auto-detect tasks.md and run with defaults
+ralph-loop.sh
+
+# Specify tasks file
+ralph-loop.sh --tasks-file specs/feature/tasks.md
+
+# Use different models
+ralph-loop.sh --implementation-model opus --validation-model sonnet
+
+# Limit iterations
+ralph-loop.sh --max-iterations 10
+```
+
+**Session Management:**
+
+When interrupted (Ctrl+C), ralph-loop.sh automatically saves its state. Running the script again will detect the interrupted session:
+
+```bash
+# After interrupting with Ctrl+C, run again:
+ralph-loop.sh
+
+# Output:
+╔═══════════════════════════════════════════════════════════════╗
+║              PREVIOUS SESSION DETECTED                        ║
+╚═══════════════════════════════════════════════════════════════╝
+
+A previous Ralph Loop session was interrupted.
+  Status:    INTERRUPTED
+  Iteration: 3
+  Phase:     validation
+
+Options:
+  ralph-loop.sh --resume        Resume from where you left off
+  ralph-loop.sh --clean         Start fresh (discards previous state)
+  ralph-loop.sh --status        View detailed session status
+```
+
+**Resume Options:**
+```bash
+# Resume from last saved state
+ralph-loop.sh --resume
+
+# Resume even if tasks.md was modified
+ralph-loop.sh --resume-force
+
+# Start fresh, discarding previous state
+ralph-loop.sh --clean
+
+# View session status without running
+ralph-loop.sh --status
+```
+
+**All Options:**
+```bash
+ralph-loop.sh [OPTIONS]
+
+Options:
+  -v, --verbose              Pass verbose flag to claude code cli
+  --max-iterations N         Maximum loop iterations (default: 20)
+  --implementation-model M   Model for implementation (default: opus)
+  --validation-model M       Model for validation (default: opus)
+  --tasks-file PATH          Path to tasks.md (auto-detects if not specified)
+  --resume                   Resume from last interrupted session
+  --resume-force             Resume even if tasks.md has changed
+  --clean                    Start fresh, delete existing .ralph-loop state
+  --status                   Show current session status without running
+  -h, --help                 Show this help message
+```
+
+**Exit Codes:**
+- `0` - All tasks completed successfully
+- `1` - Error (no tasks.md, invalid params, etc.)
+- `2` - Max iterations reached without completion
+- `3` - Escalation requested by validator
+
+**State Management:**
+
+The script saves state to `.ralph-loop/` directory including:
+- Current iteration and phase (implementation/validation)
+- Circuit breaker counters (no-progress detection)
+- Last validation feedback
+- Tasks file hash (for detecting modifications)
+- Iteration snapshots with output logs
+
+**Phase-Aware Resumption:**
+
+If interrupted during:
+- **Implementation phase**: Resumes by re-running implementation with previous feedback
+- **Validation phase**: Skips to validation using existing implementation output
+
+**Tasks File Change Detection:**
+
+If you modify `tasks.md` after interrupting a session:
+```bash
+ralph-loop.sh --resume
+
+# Output:
+╔═══════════════════════════════════════════════════════════════╗
+║              TASKS FILE MODIFIED                              ║
+╚═══════════════════════════════════════════════════════════════╝
+
+The tasks.md file has changed since the session was interrupted.
+
+Options:
+  ralph-loop.sh --resume-force   Resume with modified file
+  ralph-loop.sh --clean          Start fresh with new file
+```
+
+**Examples:**
+```bash
+# Standard usage with auto-detection
+ralph-loop.sh
+
+# Verbose mode
+ralph-loop.sh -v
+
+# Custom models and iterations
+ralph-loop.sh --implementation-model opus --validation-model haiku --max-iterations 15
+
+# Resume after Ctrl+C
+ralph-loop.sh --resume
+
+# Check status without running
+ralph-loop.sh --status
+
+# Start fresh after modifying tasks
+ralph-loop.sh --clean
+```
+
 ## Adding New Scripts
 
 1. Add your script to the `bin/` directory
