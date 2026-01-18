@@ -308,6 +308,65 @@ ralph-loop.sh --status
 ralph-loop.sh --clean
 ```
 
+## Claude Code Skills & Agents
+
+This repository includes custom Claude Code skills and sub-agents that can be shared across machines and team members.
+
+### What's Included
+
+**Skills** (workflow automation):
+| Skill | Description |
+|-------|-------------|
+| `run-tests` | Clean, build, and test workflow for .NET solutions |
+| `coderabbit-workflow` | Auto-fix CodeRabbit PR review feedback |
+| `pre-pr-review` | Run local CodeRabbit scan before creating PR |
+| `post-merge-cleanup` | Safe branch deletion after merge |
+| `qodana-local-review` | Local Qodana static code analysis |
+| `calculate-coverage` | Code coverage metrics for .NET projects |
+| `performance-testing` | Performance regression detection |
+
+**Sub-agents** (specialized task handlers):
+| Agent | Description |
+|-------|-------------|
+| `test-runner` | Executes clean-build-test workflow |
+| `coderabbit-fixer` | Addresses CodeRabbit review feedback |
+| `local-coderabbit-reviewer` | Runs local CodeRabbit scans |
+| `branch-cleanup` | Safely cleans up merged branches |
+| `local-qodana-reviewer` | Runs local Qodana analysis |
+| `perf-test-runner` | Runs performance tests with regression detection |
+
+### Installing Skills & Agents
+
+```bash
+# Install all skills and agents via symlinks
+./install-claude.sh
+
+# Preview what would be installed (dry run)
+./install-claude.sh --dry-run
+
+# Overwrite existing files (creates backups)
+./install-claude.sh --force
+
+# Uninstall (remove symlinks)
+./install-claude.sh --remove
+```
+
+**How it works:**
+- Creates symlinks from `~/.claude/skills/` and `~/.claude/agents/` to this repository
+- Updates to the repo automatically propagate to Claude Code
+- Existing files are backed up when using `--force`
+
+### Using Skills
+
+Skills auto-activate based on your requests:
+- "run tests" → triggers `run-tests` skill
+- "address coderabbit feedback" → triggers `coderabbit-workflow` skill
+- "clean up this branch" → triggers `post-merge-cleanup` skill
+
+You can also invoke skills directly:
+- `/pre-pr-review` - Run local CodeRabbit scan
+- `/qodana-local-review` - Run local Qodana scan
+
 ## Adding New Scripts
 
 1. Add your script to the `bin/` directory
@@ -330,9 +389,12 @@ source ~/.zshrc
 # Set up global Claude Code configuration
 mkdir -p ~/.claude
 ln -s ~/source/cli-tools/CLAUDE.md ~/.claude/CLAUDE.md
+
+# Install Claude Code skills and agents
+./install-claude.sh
 ```
 
-Done! All scripts are now available, and Claude Code will know about them across all projects.
+Done! All scripts are now available, and Claude Code will know about them across all projects. Skills and agents are ready to use.
 
 ## Contributing
 
