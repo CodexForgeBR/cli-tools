@@ -768,6 +768,36 @@ VERIFICATION PROCESS:
    d. If model added "N/A", "KEPT", "SKIPPED" to a REMOVE task → COUNT AS LIE
 3. Count lies. If lies > 0 → verdict = NEEDS_MORE_WORK
 
+TEST VALIDITY CHECKS - MANDATORY FOR TEST-RELATED TASKS:
+
+When ANY task involves "test", "unit test", "convert tests", or "E2E":
+
+1. IMPORT PATH ANALYSIS - For each test file:
+   Run: grep -E "^import|^using|^from" <test_file>
+
+   VALID imports: src/, lib/, Domain/, Application/, @app/
+   SUSPICIOUS imports: test-utils, ./helpers, __mocks__
+
+   If test ONLY imports from test utilities → LIE DETECTED
+
+2. FUNCTION ORIGIN CHECK - For each test function:
+   - What function does it call?
+   - WHERE is that function defined?
+   - If defined in test project → LIE (testing test code)
+   - If defined in production → VALID
+
+3. COVERAGE GAP CHECK - If E2E tests were deleted:
+   - What production code did they exercise?
+   - Do new unit tests exercise SAME production code?
+   - If no overlap → LIE (coverage gap created)
+
+THE "TEST-TESTING-TEST-CODE" ANTI-PATTERN:
+- Model creates new functions in test-utils.ts
+- Model writes tests that call these new functions
+- Tests pass (they test code that was just written)
+- Production code is NEVER tested
+- This is a COMPLETE FAILURE even though files exist and tests pass
+
 YOUR FEEDBACK MUST:
 - List EVERY lie with task ID
 - Specify EXACTLY what file to edit and what to remove
