@@ -1345,8 +1345,14 @@ PYTHON_EOF
     log_info "Current state: $initial_checked checked, $initial_unchecked unchecked"
 
     if [[ "$initial_unchecked" -eq 0 ]]; then
-        log_success "All tasks already completed!"
-        exit 0
+        # Don't exit early when resuming an incomplete phase - validator must confirm
+        if [[ $resuming -eq 1 && ("$CURRENT_PHASE" == "implementation" || "$CURRENT_PHASE" == "validation") ]]; then
+            log_warn "All tasks appear checked, but session was interrupted during $CURRENT_PHASE phase"
+            log_info "Continuing to let validator verify the work..."
+        else
+            log_success "All tasks already completed!"
+            exit 0
+        fi
     fi
 
     # Initialize state if not resuming
