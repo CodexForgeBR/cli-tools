@@ -22,6 +22,7 @@ set -e
 
 # Default configuration
 MAX_ITERATIONS=20
+MAX_CLAUDE_RETRY=10  # Default retries per claude call
 IMPL_MODEL="opus"
 VAL_MODEL="opus"
 TASKS_FILE=""
@@ -42,6 +43,11 @@ OVERRIDE_MODELS=""
 # State tracking for resume
 CURRENT_PHASE=""
 LAST_FEEDBACK=""
+
+# Retry state tracking for resume
+CURRENT_RETRY_ATTEMPT=1
+CURRENT_RETRY_DELAY=5
+RESUMING_RETRY=0
 
 # Colors for output
 RED='\033[0;31m'
@@ -124,6 +130,7 @@ Usage: $(basename "$0") [OPTIONS]
 Options:
   -v, --verbose              Pass verbose flag to claude code cli
   --max-iterations N         Maximum loop iterations (default: 20)
+  --max-claude-retry N       Max retries per claude call (default: 10)
   --implementation-model M   Model for implementation (default: opus)
   --validation-model M       Model for validation (default: opus)
   --tasks-file PATH          Path to tasks.md (auto-detects if not specified)
@@ -169,6 +176,14 @@ parse_args() {
                     exit 1
                 fi
                 MAX_ITERATIONS=$2
+                shift 2
+                ;;
+            --max-claude-retry)
+                if [[ -z "$2" || ! "$2" =~ ^[0-9]+$ ]]; then
+                    log_error "Invalid value for --max-claude-retry: $2"
+                    exit 1
+                fi
+                MAX_CLAUDE_RETRY=$2
                 shift 2
                 ;;
             --implementation-model)
@@ -335,6 +350,11 @@ try:
 
     # Store tasks file hash for validation
     print(f"STORED_TASKS_HASH='{state.get('tasks_file_hash', '')}'")
+
+    # Retry state for resume (defaults for backward compatibility)
+    retry_state = state.get('retry_state', {})
+    print(f"CURRENT_RETRY_ATTEMPT={retry_state.get('attempt', 1)}")
+    print(f"CURRENT_RETRY_DELAY={retry_state.get('delay', 5)}")
 
     sys.exit(0)
 except Exception as e:
@@ -545,6 +565,12 @@ try:
         print(f"  No Progress Count:  {circuit.get('no_progress_count', 0)}")
         print(f"  Last Unchecked:     {circuit.get('last_unchecked_count', 0)}")
 
+    retry = state.get('retry_state', {})
+    if retry and retry.get('attempt', 1) > 1:
+        print(f"\nRetry State (mid-retry when interrupted):")
+        print(f"  Next Attempt:       {retry.get('attempt', 1)}")
+        print(f"  Next Delay:         {retry.get('delay', 5)}s")
+
     feedback = state.get('last_feedback', '')
     if feedback:
         print(f"\nLast Feedback:")
@@ -631,6 +657,10 @@ save_state() {
     "circuit_breaker": {
         "no_progress_count": $NO_PROGRESS_COUNT,
         "last_unchecked_count": ${LAST_CHECKED_COUNT:-0}
+    },
+    "retry_state": {
+        "attempt": $CURRENT_RETRY_ATTEMPT,
+        "delay": $CURRENT_RETRY_DELAY
     },
     "last_feedback": "$escaped_feedback"
 }
@@ -980,17 +1010,19 @@ except:
 }
 
 # Run claude with timeout and zombie detection
-# Args: output_file timeout_seconds claude_args...
+# Args: output_file timeout_seconds start_attempt start_delay claude_args...
 # Returns: 0 on success, 1 on failure
 run_claude_with_timeout() {
     local output_file="$1"
     local timeout_secs="$2"
-    shift 2
+    local start_attempt="${3:-1}"
+    local start_delay="${4:-5}"
+    shift 4
     local -a claude_args=("$@")
 
-    local max_retries=3
-    local retry_delay=5
-    local attempt=1
+    local max_retries=$MAX_CLAUDE_RETRY
+    local retry_delay=$start_delay
+    local attempt=$start_attempt
 
     while [[ $attempt -le $max_retries ]]; do
         log_info "Claude attempt $attempt/$max_retries (timeout: ${timeout_secs}s)..." >&2
@@ -1036,6 +1068,13 @@ run_claude_with_timeout() {
 
         # Retry
         if [[ $attempt -lt $max_retries ]]; then
+            # Update global retry state for persistence before sleeping
+            CURRENT_RETRY_ATTEMPT=$((attempt + 1))
+            CURRENT_RETRY_DELAY=$((retry_delay * 2))
+
+            # Save state before sleeping (in case of interrupt during backoff)
+            save_state "running" "$CURRENT_ITERATION"
+
             log_warn "Attempt $attempt failed. Retrying in ${retry_delay}s..." >&2
             sleep "$retry_delay"
             retry_delay=$((retry_delay * 2))
@@ -1077,11 +1116,26 @@ run_implementation() {
     log_info "Running claude..." >&2
 
     # Run claude with timeout and zombie detection
+    # Use saved retry state if resuming, otherwise start fresh
+    local start_attempt=1
+    local start_delay=5
+    if [[ $RESUMING_RETRY -eq 1 ]]; then
+        start_attempt=$CURRENT_RETRY_ATTEMPT
+        start_delay=$CURRENT_RETRY_DELAY
+        RESUMING_RETRY=0  # Only resume retry state once
+        log_info "Resuming from retry attempt $start_attempt with ${start_delay}s delay" >&2
+    fi
+
+    local impl_success=0
     set +e  # Temporarily disable exit on error
-    if run_claude_with_timeout "$output_file" 1800 "${claude_args[@]}"; then
+    if run_claude_with_timeout "$output_file" 1800 "$start_attempt" "$start_delay" "${claude_args[@]}"; then
         log_success "Implementation phase completed" >&2
+        impl_success=1
+        # Reset retry state after successful phase completion
+        CURRENT_RETRY_ATTEMPT=1
+        CURRENT_RETRY_DELAY=5
     else
-        log_error "Implementation phase failed - see output file for details" >&2
+        log_error "Implementation phase failed after $MAX_CLAUDE_RETRY attempts" >&2
         log_warn "Check if claude CLI is working: claude --print 'hello'" >&2
     fi
     set -e  # Re-enable exit on error
@@ -1090,10 +1144,18 @@ run_implementation() {
     cat "$output_file" >&2
 
     save_iteration_state "$iteration" "implementation" "$output_file"
-    log_summary "Iteration $iteration: Implementation phase completed"
+
+    if [[ $impl_success -eq 1 ]]; then
+        log_summary "Iteration $iteration: Implementation phase completed"
+    else
+        log_summary "Iteration $iteration: Implementation phase FAILED"
+    fi
 
     # Only this goes to stdout - the file path
     echo "$output_file"
+
+    # Return exit code: 0 for success, 1 for failure
+    [[ $impl_success -eq 1 ]]
 }
 
 # Run validation phase
@@ -1128,9 +1190,22 @@ run_validation() {
     log_info "Running validation..." >&2
 
     # Run claude with timeout and zombie detection
+    # Use saved retry state if resuming, otherwise start fresh
+    local start_attempt=1
+    local start_delay=5
+    if [[ $RESUMING_RETRY -eq 1 ]]; then
+        start_attempt=$CURRENT_RETRY_ATTEMPT
+        start_delay=$CURRENT_RETRY_DELAY
+        RESUMING_RETRY=0  # Only resume retry state once
+        log_info "Resuming from retry attempt $start_attempt with ${start_delay}s delay" >&2
+    fi
+
     set +e  # Temporarily disable exit on error
-    if run_claude_with_timeout "$output_file" 1800 "${claude_args[@]}"; then
+    if run_claude_with_timeout "$output_file" 1800 "$start_attempt" "$start_delay" "${claude_args[@]}"; then
         log_success "Validation phase completed" >&2
+        # Reset retry state after successful phase completion
+        CURRENT_RETRY_ATTEMPT=1
+        CURRENT_RETRY_DELAY=5
     else
         log_error "Validation phase failed - see output file for details" >&2
         log_warn "Check if claude CLI is working: claude --print 'hello'" >&2
@@ -1237,6 +1312,13 @@ PYTHON_EOF
             feedback="$LAST_FEEDBACK"
             resuming=1
 
+            # Signal to use saved retry state when we reach the phase
+            # Only set if we have a non-default retry state (attempt > 1 means we were mid-retry)
+            if [[ $CURRENT_RETRY_ATTEMPT -gt 1 ]]; then
+                RESUMING_RETRY=1
+                log_info "Will resume from retry attempt $CURRENT_RETRY_ATTEMPT with ${CURRENT_RETRY_DELAY}s delay"
+            fi
+
             log_info "Resumed from iteration $iteration, phase: $CURRENT_PHASE"
 
             # If models were overridden via command line, use them
@@ -1342,8 +1424,22 @@ PYTHON_EOF
             CURRENT_PHASE="implementation"
             save_state "running" "$iteration"
 
-            # Run implementation
+            # Run implementation and capture exit code
+            set +e  # Temporarily disable exit on error
             impl_output_file=$(run_implementation "$iteration" "$feedback")
+            impl_exit_code=$?
+            set -e  # Re-enable exit on error
+
+            # Skip validation if implementation failed
+            if [[ $impl_exit_code -ne 0 ]]; then
+                local iter_elapsed=$(($(get_timestamp) - ITERATION_START_TIME))
+                local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
+                log_warn "Skipping validation - implementation phase failed after all retries"
+                log_info "Iteration $iteration completed in $(format_duration $iter_elapsed) (total: $(format_duration $total_elapsed))"
+                feedback="Implementation failed in previous iteration. Please try again with a fresh approach."
+                LAST_FEEDBACK="$feedback"
+                continue
+            fi
 
             # Save state before validation
             CURRENT_PHASE="validation"
