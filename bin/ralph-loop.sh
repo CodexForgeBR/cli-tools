@@ -797,6 +797,9 @@ VERIFICATION PROCESS:
    c. If task says CREATE: run \`ls [filename]\` - file MUST exist
    d. If model added "N/A", "KEPT", "SKIPPED" to a REMOVE task → COUNT AS LIE
 3. Count lies. If lies > 0 → verdict = NEEDS_MORE_WORK
+4. Count unchecked tasks. If remaining_unchecked > 0 → verdict = NEEDS_MORE_WORK
+5. COMPLETE = ONLY when lies_detected = 0 AND remaining_unchecked = 0 (ALL tasks done and verified)
+6. ESCALATE = When implementation is fundamentally broken or model is stuck in a loop
 
 TEST VALIDITY CHECKS - MANDATORY FOR TEST-RELATED TASKS:
 
