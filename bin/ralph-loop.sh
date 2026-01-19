@@ -1012,7 +1012,61 @@ except:
 " 2>/dev/null || echo "-1"
 }
 
-# Run claude with timeout and zombie detection
+# Extract text content from stream-json output
+# Args: json_file output_file
+# Returns: 0 on success, 1 on failure
+extract_text_from_stream_json() {
+    local json_file=$1
+    local output_file=$2
+
+    python3 - "$json_file" "$output_file" << 'PYTHON_EOF'
+import sys
+import json
+
+json_file = sys.argv[1]
+output_file = sys.argv[2]
+
+text_parts = []
+result_text = ""
+
+try:
+    with open(json_file, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+                msg_type = obj.get('type', '')
+
+                # Collect assistant text messages
+                if msg_type == 'assistant' and 'message' in obj:
+                    for content in obj['message'].get('content', []):
+                        if content.get('type') == 'text':
+                            text_parts.append(content.get('text', ''))
+
+                # Get final result
+                if msg_type == 'result':
+                    result_text = obj.get('result', '')
+            except json.JSONDecodeError:
+                continue
+
+    # Prefer collected text, fall back to result
+    final_text = '\n'.join(text_parts) if text_parts else result_text
+
+    with open(output_file, 'w') as f:
+        f.write(final_text)
+
+    sys.exit(0)
+except Exception as e:
+    print(f"Error extracting text: {e}", file=sys.stderr)
+    sys.exit(1)
+PYTHON_EOF
+}
+
+# Run claude with timeout and zombie detection (stream-json workaround)
+# Uses --output-format stream-json to detect completion via "type":"result" message
+# before the CLI hangs on "No messages returned" error
 # Args: output_file timeout_seconds start_attempt start_delay claude_args...
 # Returns: 0 on success, 1 on failure
 run_claude_with_timeout() {
@@ -1027,24 +1081,49 @@ run_claude_with_timeout() {
     local retry_delay=$start_delay
     local attempt=$start_attempt
 
+    # Create raw JSON file for stream output (in same directory as output file)
+    local raw_json_file="${output_file%.txt}.stream.json"
+
     while [[ $attempt -le $max_retries ]]; do
-        log_info "Claude attempt $attempt/$max_retries (timeout: ${timeout_secs}s)..." >&2
+        log_info "Claude attempt $attempt/$max_retries (timeout: ${timeout_secs}s, stream-json mode)..." >&2
 
-        # Clear output file
+        # Clear output files
         > "$output_file"
+        > "$raw_json_file"
 
-        # Run claude in background
-        claude "${claude_args[@]}" > "$output_file" 2>&1 &
+        # Run claude with stream-json output format
+        # The "type":"result" message is emitted BEFORE the hang occurs
+        claude "${claude_args[@]}" --output-format stream-json > "$raw_json_file" 2>&1 &
         local claude_pid=$!
 
         local elapsed=0
+        local result_received=0
+        local grace_period_start=0
 
         while kill -0 "$claude_pid" 2>/dev/null; do
-            sleep 5
-            elapsed=$((elapsed + 5))
+            sleep 1
+            elapsed=$((elapsed + 1))
 
-            # Check for zombie error in output
-            if grep -q "No messages returned" "$output_file" 2>/dev/null; then
+            # Check for successful result in stream-json output
+            if [[ $result_received -eq 0 ]] && grep -q '"type":"result"' "$raw_json_file" 2>/dev/null; then
+                result_received=1
+                grace_period_start=$elapsed
+                log_info "Result received, giving 2s grace period for clean exit..." >&2
+            fi
+
+            # If result received, give 2 seconds grace period then force kill
+            if [[ $result_received -eq 1 ]]; then
+                local grace_elapsed=$((elapsed - grace_period_start))
+                if [[ $grace_elapsed -ge 2 ]]; then
+                    log_warn "Grace period expired, killing hung process..." >&2
+                    kill -9 "$claude_pid" 2>/dev/null || true
+                    wait "$claude_pid" 2>/dev/null || true
+                    break
+                fi
+            fi
+
+            # Fallback: Check for zombie error in output (keep as backup)
+            if grep -q "No messages returned" "$raw_json_file" 2>/dev/null; then
                 log_warn "Detected 'No messages returned' - killing zombie process" >&2
                 kill -9 "$claude_pid" 2>/dev/null || true
                 wait "$claude_pid" 2>/dev/null || true
@@ -1060,16 +1139,24 @@ run_claude_with_timeout() {
             fi
         done
 
-        # Check result
-        wait "$claude_pid" 2>/dev/null
-        local exit_code=$?
+        # Wait for process to finish
+        wait "$claude_pid" 2>/dev/null || true
 
-        # Success if exited cleanly without zombie error
-        if [[ $exit_code -eq 0 ]] && ! grep -q "No messages returned" "$output_file" 2>/dev/null; then
-            return 0
+        # Check if we got a valid result
+        if grep -q '"type":"result"' "$raw_json_file" 2>/dev/null; then
+            # Extract text from stream-json and write to output file
+            if extract_text_from_stream_json "$raw_json_file" "$output_file"; then
+                log_info "Successfully extracted text from stream-json output" >&2
+                return 0
+            else
+                log_warn "Failed to extract text from stream-json, using raw output" >&2
+                # Fallback: copy raw json as output (caller will handle parsing)
+                cp "$raw_json_file" "$output_file"
+                return 0
+            fi
         fi
 
-        # Retry
+        # No result received - this is a failure, retry
         if [[ $attempt -lt $max_retries ]]; then
             # Update global retry state for persistence before sleeping
             CURRENT_RETRY_ATTEMPT=$((attempt + 1))
@@ -1078,7 +1165,7 @@ run_claude_with_timeout() {
             # Save state before sleeping (in case of interrupt during backoff)
             save_state "running" "$CURRENT_ITERATION"
 
-            log_warn "Attempt $attempt failed. Retrying in ${retry_delay}s..." >&2
+            log_warn "Attempt $attempt failed (no result received). Retrying in ${retry_delay}s..." >&2
             sleep "$retry_delay"
             retry_delay=$((retry_delay * 2))
         fi
