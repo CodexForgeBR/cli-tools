@@ -1093,7 +1093,8 @@ run_claude_with_timeout() {
 
         # Run claude with stream-json output format
         # The "type":"result" message is emitted BEFORE the hang occurs
-        claude "${claude_args[@]}" --output-format stream-json > "$raw_json_file" 2>&1 &
+        # Note: --verbose is required when combining --print with --output-format stream-json
+        claude "${claude_args[@]}" --verbose --output-format stream-json > "$raw_json_file" 2>&1 &
         local claude_pid=$!
 
         local elapsed=0
