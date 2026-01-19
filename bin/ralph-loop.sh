@@ -41,6 +41,11 @@ ITERATION_START_TIME=""
 SESSION_ID=""
 CURRENT_ITERATION=0  # Global iteration counter for cleanup handler
 
+# Timeout configuration
+MAX_TURNS=100                # Default max turns per claude invocation
+INACTIVITY_TIMEOUT=600       # 10 min inactivity timeout (resets on activity)
+MAX_TOTAL_TIMEOUT=7200       # 2 hour hard cap
+
 # Resume-related flags
 RESUME_FLAG=""
 RESUME_FORCE=""
@@ -139,6 +144,7 @@ Options:
   -v, --verbose              Pass verbose flag to claude code cli
   --max-iterations N         Maximum loop iterations (default: 20)
   --max-claude-retry N       Max retries per claude call (default: 10)
+  --max-turns N              Max agent turns per claude invocation (default: 100)
   --implementation-model M   Model for implementation (default: opus)
   --validation-model M       Model for validation (default: opus)
   --tasks-file PATH          Path to tasks.md (auto-detects if not specified)
@@ -147,6 +153,12 @@ Options:
   --clean                    Start fresh, delete existing .ralph-loop state
   --status                   Show current session status without running
   -h, --help                 Show this help message
+
+Timeout Configuration:
+  --max-turns limits tool calls per invocation to prevent unbounded work
+  Inactivity timeout: 600s (kills process if no output for 10 minutes)
+  Hard cap timeout: 7200s (absolute 2-hour maximum per invocation)
+  Both timeouts reset when Claude produces output (activity-based)
 
 Session Management:
   When a session is interrupted (Ctrl+C), state is automatically saved.
@@ -193,6 +205,14 @@ parse_args() {
                     exit 1
                 fi
                 MAX_CLAUDE_RETRY=$2
+                shift 2
+                ;;
+            --max-turns)
+                if [[ -z "$2" || ! "$2" =~ ^[0-9]+$ ]]; then
+                    log_error "Invalid value for --max-turns: $2"
+                    exit 1
+                fi
+                MAX_TURNS=$2
                 shift 2
                 ;;
             --implementation-model)
@@ -1128,8 +1148,11 @@ PYTHON_EOF
 # Run claude with timeout and zombie detection (stream-json workaround)
 # Uses --output-format stream-json to detect completion via "type":"result" message
 # before the CLI hangs on "No messages returned" error
-# Args: output_file timeout_seconds start_attempt start_delay claude_args...
+# Args: output_file timeout_seconds(deprecated) start_attempt start_delay claude_args...
 # Returns: 0 on success, 1 on failure
+# Note: timeout_seconds parameter is deprecated and ignored. Timeout is now controlled by:
+#   - INACTIVITY_TIMEOUT: kills if no output for N seconds (default: 600s)
+#   - MAX_TOTAL_TIMEOUT: absolute maximum duration (default: 7200s)
 run_claude_with_timeout() {
     local output_file="$1"
     local timeout_secs="$2"
@@ -1146,7 +1169,7 @@ run_claude_with_timeout() {
     local raw_json_file="${output_file%.txt}.stream.json"
 
     while [[ $attempt -le $max_retries ]]; do
-        log_info "Claude attempt $attempt/$max_retries (timeout: ${timeout_secs}s, stream-json mode)..." >&2
+        log_info "Claude attempt $attempt/$max_retries (inactivity: ${INACTIVITY_TIMEOUT}s, max: ${MAX_TOTAL_TIMEOUT}s, stream-json mode)..." >&2
 
         # Clear output files
         > "$output_file"
@@ -1161,10 +1184,19 @@ run_claude_with_timeout() {
         local elapsed=0
         local result_received=0
         local grace_period_start=0
+        local last_activity_time=$(date +%s)
+        local last_file_size=0
 
         while kill -0 "$claude_pid" 2>/dev/null; do
-            sleep 1
-            elapsed=$((elapsed + 1))
+            sleep 2
+            elapsed=$((elapsed + 2))
+
+            # Check for file activity (size change = Claude is working)
+            local current_size=$(stat -f %z "$raw_json_file" 2>/dev/null || echo 0)
+            if [[ "$current_size" -gt "$last_file_size" ]]; then
+                last_activity_time=$(date +%s)
+                last_file_size=$current_size
+            fi
 
             # Check for successful result in stream-json output
             if [[ $result_received -eq 0 ]] && grep -q '"type":"result"' "$raw_json_file" 2>/dev/null; then
@@ -1173,7 +1205,7 @@ run_claude_with_timeout() {
                 log_info "Result received, giving 2s grace period for clean exit..." >&2
             fi
 
-            # If result received, give 2 seconds grace period then force kill
+            # Grace period after result
             if [[ $result_received -eq 1 ]]; then
                 local grace_elapsed=$((elapsed - grace_period_start))
                 if [[ $grace_elapsed -ge 2 ]]; then
@@ -1184,17 +1216,26 @@ run_claude_with_timeout() {
                 fi
             fi
 
-            # Fallback: Check for zombie error in output (keep as backup)
-            if grep -q "No messages returned" "$raw_json_file" 2>/dev/null; then
-                log_warn "Detected 'No messages returned' - killing zombie process" >&2
+            # Inactivity timeout (resets when Claude writes to stream)
+            local inactivity=$(($(date +%s) - last_activity_time))
+            if [[ $inactivity -ge $INACTIVITY_TIMEOUT ]]; then
+                log_warn "Inactivity timeout (${INACTIVITY_TIMEOUT}s with no output) - killing process" >&2
                 kill -9 "$claude_pid" 2>/dev/null || true
                 wait "$claude_pid" 2>/dev/null || true
                 break
             fi
 
-            # Hard timeout
-            if [[ $elapsed -ge $timeout_secs ]]; then
-                log_warn "Hard timeout (${timeout_secs}s) - killing process" >&2
+            # Hard total timeout (safety cap)
+            if [[ $elapsed -ge $MAX_TOTAL_TIMEOUT ]]; then
+                log_warn "Hard timeout (${MAX_TOTAL_TIMEOUT}s total) - killing process" >&2
+                kill -9 "$claude_pid" 2>/dev/null || true
+                wait "$claude_pid" 2>/dev/null || true
+                break
+            fi
+
+            # Fallback: Check for zombie error
+            if grep -q "No messages returned" "$raw_json_file" 2>/dev/null; then
+                log_warn "Detected 'No messages returned' - killing zombie process" >&2
                 kill -9 "$claude_pid" 2>/dev/null || true
                 wait "$claude_pid" 2>/dev/null || true
                 break
@@ -1256,6 +1297,7 @@ run_implementation() {
         --dangerously-skip-permissions
         --model "$IMPL_MODEL"
         --print
+        --max-turns "$MAX_TURNS"
     )
 
     if [[ -n "$VERBOSE" ]]; then
@@ -1330,6 +1372,7 @@ run_validation() {
         --dangerously-skip-permissions
         --model "$VAL_MODEL"
         --print
+        --max-turns "$MAX_TURNS"
     )
 
     if [[ -n "$VERBOSE" ]]; then
