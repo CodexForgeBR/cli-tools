@@ -17,8 +17,16 @@
 #   1 - Error (no tasks.md, invalid params, etc.)
 #   2 - Max iterations reached without completion
 #   3 - Escalation requested by validator
+#   4 - Tasks blocked - human intervention needed
 
 set -e
+
+# Exit code constants
+EXIT_SUCCESS=0
+EXIT_ERROR=1
+EXIT_MAX_ITERATIONS=2
+EXIT_ESCALATE=3
+EXIT_BLOCKED=4
 
 # Default configuration
 MAX_ITERATIONS=20
@@ -150,6 +158,7 @@ Exit Codes:
   1 - Error (no tasks.md, invalid params, etc.)
   2 - Max iterations reached without completion
   3 - Escalation requested by validator
+  4 - Tasks blocked - human intervention needed
 
 Examples:
   $(basename "$0")
@@ -797,9 +806,14 @@ VERIFICATION PROCESS:
    c. If task says CREATE: run \`ls [filename]\` - file MUST exist
    d. If model added "N/A", "KEPT", "SKIPPED" to a REMOVE task → COUNT AS LIE
 3. Count lies. If lies > 0 → verdict = NEEDS_MORE_WORK
-4. Count unchecked tasks. If remaining_unchecked > 0 → verdict = NEEDS_MORE_WORK
-5. COMPLETE = ONLY when lies_detected = 0 AND remaining_unchecked = 0 (ALL tasks done and verified)
-6. ESCALATE = When implementation is fundamentally broken or model is stuck in a loop
+4. Count unchecked tasks. If remaining_unchecked > 0:
+   - Check if ALL remaining are genuinely blocked (external dependencies, missing credentials, requires human decision)
+   - If ALL remaining are confirmed blocked → verdict = BLOCKED
+   - If some are doable → verdict = NEEDS_MORE_WORK
+5. BLOCKED = When remaining_unchecked > 0 BUT all unchecked tasks are confirmed genuinely blocked
+   (Examples: requires production API keys, needs human approval, external service unavailable)
+6. COMPLETE = ONLY when lies_detected = 0 AND remaining_unchecked = 0 AND confirmed_blocked = 0 (ALL tasks done)
+7. ESCALATE = When implementation is fundamentally broken or model is stuck in a loop
 
 TEST VALIDITY CHECKS - MANDATORY FOR TEST-RELATED TASKS:
 
@@ -841,13 +855,17 @@ OUTPUT FORMAT - You MUST output this exact JSON format at the end (the script pa
 \`\`\`json
 {
   "RALPH_VALIDATION": {
-    "verdict": "COMPLETE|NEEDS_MORE_WORK|ESCALATE",
+    "verdict": "COMPLETE|NEEDS_MORE_WORK|BLOCKED|ESCALATE",
     "tasks_analysis": {
       "total_checked": <number of tasks marked [x]>,
       "actually_done": <number verified via git diff/file checks>,
       "lies_detected": <number of false claims>,
-      "remaining_unchecked": <number of tasks still [ ]>
+      "remaining_unchecked": <number of tasks still [ ]>,
+      "confirmed_blocked": <number of tasks genuinely blocked>
     },
+    "blocked_tasks": [
+      {"task_id": "T0XX", "description": "task description", "reason": "Why genuinely blocked (e.g., requires production API key)"}
+    ],
     "lies": [
       {"task": "T0XX description", "claimed": "what model said it did", "reality": "what actually happened per git diff"}
     ],
@@ -1010,6 +1028,49 @@ try:
 except:
     print(-1)
 " 2>/dev/null || echo "-1"
+}
+
+# Parse confirmed blocked count from validation
+parse_blocked_count() {
+    local json=$1
+    echo "$json" | python3 -c "
+import sys
+import json
+
+try:
+    data = json.load(sys.stdin)
+    validation = data.get('RALPH_VALIDATION', {})
+    analysis = validation.get('tasks_analysis', {})
+    print(analysis.get('confirmed_blocked', 0))
+except:
+    print(0)
+" 2>/dev/null || echo "0"
+}
+
+# Parse blocked tasks list from validation (returns formatted string)
+parse_blocked_tasks() {
+    local json=$1
+    echo "$json" | python3 -c "
+import sys
+import json
+
+try:
+    data = json.load(sys.stdin)
+    validation = data.get('RALPH_VALIDATION', {})
+    blocked = validation.get('blocked_tasks', [])
+
+    if not blocked:
+        print('No blocked tasks reported')
+    else:
+        for task in blocked:
+            task_id = task.get('task_id', 'Unknown')
+            desc = task.get('description', '')
+            reason = task.get('reason', 'No reason given')
+            print(f'  - {task_id}: {desc}')
+            print(f'    Reason: {reason}')
+except Exception as e:
+    print(f'Error parsing blocked tasks: {e}')
+" 2>/dev/null || echo "Could not parse blocked tasks"
 }
 
 # Extract text content from stream-json output
@@ -1573,7 +1634,7 @@ PYTHON_EOF
                 printf "${GREEN}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
                 echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
 
-                exit 0
+                exit $EXIT_SUCCESS
             fi
 
             feedback="Validation did not provide structured output. $current_unchecked tasks remain unchecked. Please continue implementation."
@@ -1592,11 +1653,15 @@ PYTHON_EOF
 
         case "$verdict" in
             COMPLETE)
-                # Double-check by counting tasks
+                # Double-check by counting tasks and blocked status
                 local final_unchecked
                 final_unchecked=$(count_unchecked_tasks "$TASKS_FILE")
+                local blocked_count
+                blocked_count=$(parse_blocked_count "$val_json")
+                local doable_unchecked=$((final_unchecked - blocked_count))
 
                 if [[ "$final_unchecked" -eq 0 ]]; then
+                    # True completion - no unchecked tasks
                     local iter_elapsed=$(($(get_timestamp) - ITERATION_START_TIME))
                     local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
 
@@ -1612,11 +1677,34 @@ PYTHON_EOF
                     printf "${GREEN}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
                     echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
 
-                    exit 0
-                else
-                    log_warn "Validator said COMPLETE but $final_unchecked tasks still unchecked"
-                    feedback="Validator incorrectly claimed completion. $final_unchecked tasks still unchecked. Continue implementation."
-                    LAST_FEEDBACK="$feedback"  # Store for state saving
+                    exit $EXIT_SUCCESS
+                elif [[ $doable_unchecked -gt 0 ]]; then
+                    # Override COMPLETE - there are still doable tasks
+                    log_warn "Validator said COMPLETE but $doable_unchecked tasks remain unchecked and not blocked"
+                    feedback="Validator incorrectly claimed completion. $doable_unchecked tasks still unchecked and doable. Continue implementation."
+                    LAST_FEEDBACK="$feedback"
+                elif [[ $blocked_count -gt 0 ]]; then
+                    # All remaining are blocked - partial success
+                    local iter_elapsed=$(($(get_timestamp) - ITERATION_START_TIME))
+                    local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
+                    local blocked_tasks
+                    blocked_tasks=$(parse_blocked_tasks "$val_json")
+
+                    log_warn "All doable tasks complete, but $blocked_count tasks remain blocked"
+                    CURRENT_PHASE="blocked"
+                    save_state "BLOCKED" "$iteration" "BLOCKED"
+                    log_summary "BLOCKED: Doable tasks done, $blocked_count tasks blocked ($(format_duration $total_elapsed))"
+
+                    echo -e "\n${YELLOW}╔═══════════════════════════════════════════════════════════════╗${NC}"
+                    echo -e "${YELLOW}║                    TASKS BLOCKED                              ║${NC}"
+                    echo -e "${YELLOW}║          Doable tasks complete, some blocked                  ║${NC}"
+                    echo -e "${YELLOW}╠═══════════════════════════════════════════════════════════════╣${NC}"
+                    printf "${YELLOW}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
+                    printf "${YELLOW}║  Blocked tasks: %-46d║${NC}\n" "$blocked_count"
+                    echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+                    echo -e "Blocked tasks:\n$blocked_tasks\n"
+
+                    exit $EXIT_BLOCKED
                 fi
                 ;;
 
@@ -1640,7 +1728,7 @@ PYTHON_EOF
                         save_state "CIRCUIT_BREAKER" "$iteration" "NEEDS_MORE_WORK"
                         log_summary "CIRCUIT BREAKER: No progress for $MAX_NO_PROGRESS iterations ($(format_duration $total_elapsed))"
                         log_info "Total time: $(format_duration $total_elapsed)"
-                        exit 2
+                        exit $EXIT_MAX_ITERATIONS
                     fi
                 else
                     NO_PROGRESS_COUNT=0
@@ -1666,7 +1754,47 @@ PYTHON_EOF
                 echo -e "${RED}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
                 echo -e "Reason: $feedback\n"
 
-                exit 3
+                exit $EXIT_ESCALATE
+                ;;
+
+            BLOCKED)
+                local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
+                local blocked_count
+                blocked_count=$(parse_blocked_count "$val_json")
+                local blocked_tasks
+                blocked_tasks=$(parse_blocked_tasks "$val_json")
+
+                log_warn "Validator confirmed $blocked_count tasks are blocked"
+                log_summary "ITERATION $iteration: BLOCKED ($blocked_count tasks)"
+
+                # Check if there are any non-blocked unchecked tasks
+                local total_unchecked
+                total_unchecked=$(count_unchecked_tasks "$TASKS_FILE")
+                local doable_unchecked=$((total_unchecked - blocked_count))
+
+                if [[ $doable_unchecked -gt 0 ]]; then
+                    # Some tasks are still doable, continue loop
+                    log_info "$blocked_count tasks blocked, but $doable_unchecked tasks still doable"
+                    feedback="$blocked_count tasks confirmed blocked. Focus on remaining $doable_unchecked doable tasks."
+                    LAST_FEEDBACK="$feedback"
+                else
+                    # All unchecked tasks are blocked
+                    log_error "All remaining tasks are blocked - human intervention required"
+                    CURRENT_PHASE="blocked"
+                    save_state "BLOCKED" "$iteration" "BLOCKED"
+                    log_summary "BLOCKED: All $blocked_count remaining tasks require human intervention ($(format_duration $total_elapsed))"
+
+                    echo -e "\n${YELLOW}╔═══════════════════════════════════════════════════════════════╗${NC}"
+                    echo -e "${YELLOW}║                    TASKS BLOCKED                              ║${NC}"
+                    echo -e "${YELLOW}║              Human intervention required                      ║${NC}"
+                    echo -e "${YELLOW}╠═══════════════════════════════════════════════════════════════╣${NC}"
+                    printf "${YELLOW}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
+                    printf "${YELLOW}║  Blocked tasks: %-46d║${NC}\n" "$blocked_count"
+                    echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+                    echo -e "Blocked tasks:\n$blocked_tasks\n"
+
+                    exit $EXIT_BLOCKED
+                fi
                 ;;
 
             *)
@@ -1703,7 +1831,7 @@ PYTHON_EOF
     printf "${YELLOW}║  Tasks remaining: %-44d║${NC}\n" "$final_unchecked"
     echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
 
-    exit 2
+    exit $EXIT_MAX_ITERATIONS
 }
 
 main "$@"
