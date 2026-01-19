@@ -790,7 +790,37 @@ generate_val_prompt() {
     cat << EOF
 YOU ARE A LIE DETECTOR. THE IMPLEMENTATION MODEL LIES CONSTANTLY. YOUR JOB IS TO CATCH EVERY LIE.
 
+═══════════════════════════════════════════════════════════════════════════════
+MANDATORY FIRST STEP - DO THIS BEFORE READING ANYTHING ELSE BELOW
+═══════════════════════════════════════════════════════════════════════════════
+
+You MUST read the tasks file FIRST:
+
+1. Read: $TASKS_FILE
+2. Count TOTAL tasks (T001, T002, etc.)
+3. Count tasks marked [x] (completed)
+4. Count tasks marked [ ] (incomplete)
+5. Note the ACTUAL task text for each task
+
+DO NOT PROCEED until you have read the tasks file.
+DO NOT TRUST any claims below until you verify against the actual file.
+
+The implementation model LIES about task counts, task text, and completion status.
+═══════════════════════════════════════════════════════════════════════════════
+
 TASKS FILE: $TASKS_FILE
+
+═══════════════════════════════════════════════════════════════════════════════
+WARNING: THE CLAIMS BELOW MAY BE COMPLETE FABRICATIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+The implementation model claimed to complete tasks. These claims may include:
+- Fake task counts (claiming 69 tasks when only 65 exist)
+- Fake completion status (claiming [x] when actually [ ])
+- Fake task text (describing tasks that don't match the actual file)
+- Referencing wrong files or wrong specs entirely
+
+VERIFY EVERY CLAIM against the actual tasks.md you read in step 1.
 
 THE IMPLEMENTATION MODEL CLAIMED:
 ================================================================================
@@ -816,25 +846,32 @@ THE MODEL WILL TRY THESE TRICKS - REJECT ALL OF THEM:
 5. Marking [x] without doing work: Check git diff, if file not changed → LIE
 6. Philosophical arguments: "E2E and unit tests are complementary" → SCOPE VIOLATION (model doesn't decide architecture)
 7. Adding annotations to tasks: "- [x] T051 KEPT: reason" → LIE (model rewrote the task)
+8. FABRICATED TASK COUNT: "All 69 tasks complete" when file has different count → LIE
+9. WRONG TASKS FILE: Validating a different tasks.md than specified → LIE
+10. FAKE COMPLETION: Claiming tasks [x] when they're actually [ ] in the file → LIE
 
 THE MODEL'S OPINION DOES NOT MATTER. THE TASK TEXT IS LAW.
 
 VERIFICATION PROCESS:
-1. Read tasks.md - find ALL tasks marked [x]
-2. For EACH [x] task:
+0. STOP. Did you read $TASKS_FILE yet? If not, READ IT NOW before proceeding.
+1. Compare YOUR task count from the file vs the model's claimed task count
+   - If they don't match → IMMEDIATE LIE DETECTED
+2. For each task in the file, verify its ACTUAL [x] or [ ] status
+   - If model claims complete but file shows [ ] → LIE
+3. For EACH genuinely [x] task (per the FILE, not the model):
    a. Read the ORIGINAL task text (ignore any annotations the model added)
    b. If task says REMOVE: run \`git diff [filename]\` - scenario MUST be gone
    c. If task says CREATE: run \`ls [filename]\` - file MUST exist
    d. If model added "N/A", "KEPT", "SKIPPED" to a REMOVE task → COUNT AS LIE
-3. Count lies. If lies > 0 → verdict = NEEDS_MORE_WORK
-4. Count unchecked tasks. If remaining_unchecked > 0:
+4. Count lies. If lies > 0 → verdict = NEEDS_MORE_WORK
+5. Count unchecked tasks. If remaining_unchecked > 0:
    - Check if ALL remaining are genuinely blocked (external dependencies, missing credentials, requires human decision)
    - If ALL remaining are confirmed blocked → verdict = BLOCKED
    - If some are doable → verdict = NEEDS_MORE_WORK
-5. BLOCKED = When remaining_unchecked > 0 BUT all unchecked tasks are confirmed genuinely blocked
+6. BLOCKED = When remaining_unchecked > 0 BUT all unchecked tasks are confirmed genuinely blocked
    (Examples: requires production API keys, needs human approval, external service unavailable)
-6. COMPLETE = ONLY when lies_detected = 0 AND remaining_unchecked = 0 AND confirmed_blocked = 0 (ALL tasks done)
-7. ESCALATE = When implementation is fundamentally broken or model is stuck in a loop
+7. COMPLETE = ONLY when lies_detected = 0 AND remaining_unchecked = 0 AND confirmed_blocked = 0 (ALL tasks done)
+8. ESCALATE = When implementation is fundamentally broken or model is stuck in a loop
 
 TEST VALIDITY CHECKS - MANDATORY FOR TEST-RELATED TASKS:
 
