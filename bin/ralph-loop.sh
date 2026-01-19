@@ -379,6 +379,7 @@ try:
 
     # Store tasks file hash for validation
     print(f"STORED_TASKS_HASH='{state.get('tasks_file_hash', '')}'")
+    print(f"STORED_TASKS_FILE='{state.get('tasks_file', '')}'")
 
     # Retry state for resume (defaults for backward compatibility)
     retry_state = state.get('retry_state', {})
@@ -1461,6 +1462,12 @@ main() {
     if [[ -n "$RESUME_FLAG" || -n "$RESUME_FORCE" ]]; then
         if load_state; then
             log_info "Loading previous session state..."
+
+            # Restore tasks file path from saved state
+            if [[ -n "$STORED_TASKS_FILE" && -f "$STORED_TASKS_FILE" ]]; then
+                TASKS_FILE="$STORED_TASKS_FILE"
+                log_info "Restored tasks file from state: $TASKS_FILE"
+            fi
 
             # Validate state integrity (disable set -e temporarily)
             local validation_error
