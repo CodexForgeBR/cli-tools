@@ -1192,7 +1192,7 @@ run_claude_with_timeout() {
             elapsed=$((elapsed + 2))
 
             # Check for file activity (size change = Claude is working)
-            local current_size=$(stat -f %z "$raw_json_file" 2>/dev/null || echo 0)
+            local current_size=$(stat -c %s "$raw_json_file" 2>/dev/null || stat -f %z "$raw_json_file" 2>/dev/null || echo 0)
             if [[ "$current_size" -gt "$last_file_size" ]]; then
                 last_activity_time=$(date +%s)
                 last_file_size=$current_size
