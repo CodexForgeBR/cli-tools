@@ -48,7 +48,7 @@ CURRENT_ITERATION=0  # Global iteration counter for cleanup handler
 
 # Timeout configuration
 MAX_TURNS=100                # Default max turns per claude invocation
-INACTIVITY_TIMEOUT=600       # 10 min inactivity timeout (resets on activity)
+INACTIVITY_TIMEOUT=1800      # 30 min inactivity timeout (resets on activity)
 MAX_TOTAL_TIMEOUT=7200       # 2 hour hard cap
 
 # Resume-related flags
@@ -160,6 +160,7 @@ Options:
   --max-iterations N         Maximum loop iterations (default: 20)
   --max-claude-retry N       Max retries per AI call (default: 10)
   --max-turns N              Max agent turns per claude invocation (default: 100)
+  --inactivity-timeout N     Inactivity timeout in seconds (default: 1800 = 30 min)
   --implementation-model M   Model for implementation (default: opus for claude, config default for codex)
   --validation-model M       Model for validation (default: opus for claude, config default for codex)
   --tasks-file PATH          Path to tasks.md (auto-detects if not specified)
@@ -173,7 +174,9 @@ Options:
 
 Timeout Configuration:
   --max-turns limits tool calls per invocation to prevent unbounded work
-  Inactivity timeout: 600s (kills process if no output for 10 minutes)
+  Inactivity timeout: 1800s default (kills process if no output for 30 minutes)
+    - Configurable with --inactivity-timeout
+    - Resets when AI produces output (activity-based)
   Hard cap timeout: 7200s (absolute 2-hour maximum per invocation)
   Both timeouts reset when Claude produces output (activity-based)
 
@@ -261,6 +264,14 @@ parse_args() {
                     exit 1
                 fi
                 MAX_TURNS=$2
+                shift 2
+                ;;
+            --inactivity-timeout)
+                if [[ -z "$2" || ! "$2" =~ ^[0-9]+$ ]]; then
+                    log_error "Invalid value for --inactivity-timeout: $2"
+                    exit 1
+                fi
+                INACTIVITY_TIMEOUT=$2
                 shift 2
                 ;;
             --implementation-model)
