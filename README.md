@@ -172,8 +172,8 @@ The wrapper works automatically once `~/source/cli-tools/bin` is added to PATH (
 **Dual-Model Validation Loop** for Spec-Driven Development based on the Ralph Wiggum technique by Geoffrey Huntley (May 2025).
 
 **What It Does:**
-- Implements tasks from a `tasks.md` specification file using one Claude model
-- Validates the work using a different Claude model to catch "lies" and incomplete work
+- Implements tasks from a `tasks.md` specification file using one AI model
+- Validates the work using a different AI model to catch "lies" and incomplete work
 - Loops until all tasks are completed or max iterations reached
 - Supports intelligent session resumption if interrupted
 
@@ -187,6 +187,9 @@ ralph-loop.sh --tasks-file specs/feature/tasks.md
 
 # Use different models
 ralph-loop.sh --implementation-model opus --validation-model sonnet
+
+# Use Codex CLI
+ralph-loop.sh --ai codex
 
 # Limit iterations
 ralph-loop.sh --max-iterations 10
@@ -237,9 +240,10 @@ ralph-loop.sh [OPTIONS]
 
 Options:
   -v, --verbose              Pass verbose flag to claude code cli
+  --ai CLI                   AI CLI to use: claude or codex (default: claude)
   --max-iterations N         Maximum loop iterations (default: 20)
-  --implementation-model M   Model for implementation (default: opus)
-  --validation-model M       Model for validation (default: opus)
+  --implementation-model M   Model for implementation (default: opus for claude, config default for codex)
+  --validation-model M       Model for validation (default: opus for claude, config default for codex)
   --tasks-file PATH          Path to tasks.md (auto-detects if not specified)
   --resume                   Resume from last interrupted session
   --resume-force             Resume even if tasks.md has changed
@@ -297,6 +301,9 @@ ralph-loop.sh -v
 
 # Custom models and iterations
 ralph-loop.sh --implementation-model opus --validation-model haiku --max-iterations 15
+
+# Use Codex CLI
+ralph-loop.sh --ai codex
 
 # Resume after Ctrl+C
 ralph-loop.sh --resume

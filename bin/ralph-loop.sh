@@ -7,9 +7,10 @@
 #
 # Options:
 #   -v, --verbose            Pass verbose flag to claude code cli
+#   --ai CLI                 AI CLI to use: claude or codex (default: claude)
 #   --max-iterations N       Maximum loop iterations (default: 20)
-#   --implementation-model   Model for implementation (default: opus)
-#   --validation-model       Model for validation (default: sonnet)
+#   --implementation-model   Model for implementation (default: opus for claude, config default for codex)
+#   --validation-model       Model for validation (default: opus for claude, config default for codex)
 #   --tasks-file PATH        Path to tasks.md (auto-detects: ./tasks.md, specs/*/tasks.md)
 #
 # Exit Codes:
@@ -30,11 +31,15 @@ EXIT_BLOCKED=4
 
 # Default configuration
 MAX_ITERATIONS=20
-MAX_CLAUDE_RETRY=10  # Default retries per claude call
+MAX_CLAUDE_RETRY=10  # Default retries per AI call
 IMPL_MODEL="opus"
 VAL_MODEL="opus"
 TASKS_FILE=""
 VERBOSE=""
+AI_CLI="claude"
+OVERRIDE_AI=""
+OVERRIDE_IMPL_MODEL=""
+OVERRIDE_VAL_MODEL=""
 STATE_DIR=".ralph-loop"
 SCRIPT_START_TIME=""
 ITERATION_START_TIME=""
@@ -56,6 +61,9 @@ OVERRIDE_MODELS=""
 # State tracking for resume
 CURRENT_PHASE=""
 LAST_FEEDBACK=""
+STORED_AI_CLI=""
+STORED_IMPL_MODEL=""
+STORED_VAL_MODEL=""
 
 # Retry state tracking for resume
 CURRENT_RETRY_ATTEMPT=1
@@ -142,11 +150,12 @@ Usage: $(basename "$0") [OPTIONS]
 
 Options:
   -v, --verbose              Pass verbose flag to claude code cli
+  --ai CLI                   AI CLI to use: claude or codex (default: claude)
   --max-iterations N         Maximum loop iterations (default: 20)
-  --max-claude-retry N       Max retries per claude call (default: 10)
+  --max-claude-retry N       Max retries per AI call (default: 10)
   --max-turns N              Max agent turns per claude invocation (default: 100)
-  --implementation-model M   Model for implementation (default: opus)
-  --validation-model M       Model for validation (default: opus)
+  --implementation-model M   Model for implementation (default: opus for claude, config default for codex)
+  --validation-model M       Model for validation (default: opus for claude, config default for codex)
   --tasks-file PATH          Path to tasks.md (auto-detects if not specified)
   --resume                   Resume from last interrupted session
   --resume-force             Resume even if tasks.md has changed
@@ -177,6 +186,7 @@ Examples:
   $(basename "$0") --max-iterations 10
   $(basename "$0") --implementation-model sonnet --validation-model haiku
   $(basename "$0") --tasks-file specs/feature/tasks.md -v
+  $(basename "$0") --ai codex
   $(basename "$0") --resume
   $(basename "$0") --status
   $(basename "$0") --clean
@@ -190,6 +200,23 @@ parse_args() {
             -v|--verbose)
                 VERBOSE="--verbose"
                 shift
+                ;;
+            --ai)
+                if [[ -z "$2" ]]; then
+                    log_error "Missing value for --ai (expected: claude or codex)"
+                    exit 1
+                fi
+                case "$2" in
+                    claude|codex)
+                        AI_CLI="$2"
+                        OVERRIDE_AI="1"
+                        ;;
+                    *)
+                        log_error "Invalid value for --ai: $2 (expected: claude or codex)"
+                        exit 1
+                        ;;
+                esac
+                shift 2
                 ;;
             --max-iterations)
                 if [[ -z "$2" || ! "$2" =~ ^[0-9]+$ ]]; then
@@ -222,6 +249,7 @@ parse_args() {
                 fi
                 IMPL_MODEL=$2
                 OVERRIDE_MODELS="1"
+                OVERRIDE_IMPL_MODEL="1"
                 shift 2
                 ;;
             --validation-model)
@@ -231,6 +259,7 @@ parse_args() {
                 fi
                 VAL_MODEL=$2
                 OVERRIDE_MODELS="1"
+                OVERRIDE_VAL_MODEL="1"
                 shift 2
                 ;;
             --tasks-file)
@@ -269,6 +298,84 @@ parse_args() {
                 ;;
         esac
     done
+}
+
+# Apply default models based on selected AI CLI
+set_default_models_for_ai() {
+    if [[ "$AI_CLI" == "codex" ]]; then
+        if [[ -z "$OVERRIDE_IMPL_MODEL" ]]; then
+            IMPL_MODEL="default"
+        fi
+        if [[ -z "$OVERRIDE_VAL_MODEL" ]]; then
+            VAL_MODEL="default"
+        fi
+    else
+        if [[ -z "$OVERRIDE_IMPL_MODEL" ]]; then
+            IMPL_MODEL="opus"
+        fi
+        if [[ -z "$OVERRIDE_VAL_MODEL" ]]; then
+            VAL_MODEL="opus"
+        fi
+    fi
+}
+
+is_claude_model_hint() {
+    local model=$1
+    if [[ "$model" == "opus" || "$model" == "sonnet" || "$model" == "haiku" ]]; then
+        return 0
+    fi
+    if [[ "$model" == claude-* ]]; then
+        return 0
+    fi
+    return 1
+}
+
+is_codex_model_hint() {
+    local model=$1
+    if [[ "$model" == "default" ]]; then
+        return 0
+    fi
+    if [[ "$model" =~ ^o[0-9] ]]; then
+        return 0
+    fi
+    if [[ "$model" =~ ^(gpt|chatgpt|text|ft|gpt4) ]]; then
+        return 0
+    fi
+    return 1
+}
+
+validate_model_for_ai() {
+    local ai=$1
+    local model=$2
+    local label=$3
+
+    if [[ -z "$model" ]]; then
+        return 0
+    fi
+
+    if [[ "$ai" == "codex" && "$model" == "default" ]]; then
+        return 0
+    fi
+
+    if [[ "$ai" == "claude" && "$model" == "default" ]]; then
+        log_error "Model 'default' is only valid with --ai codex (invalid for $label model)"
+        exit 1
+    fi
+
+    if [[ "$ai" == "codex" ]] && is_claude_model_hint "$model"; then
+        log_error "Model '$model' looks like a Claude model but --ai is codex ($label model)"
+        exit 1
+    fi
+
+    if [[ "$ai" == "claude" ]] && is_codex_model_hint "$model"; then
+        log_error "Model '$model' looks like a Codex/OpenAI model but --ai is claude ($label model)"
+        exit 1
+    fi
+}
+
+validate_models_for_ai() {
+    validate_model_for_ai "$AI_CLI" "$IMPL_MODEL" "implementation"
+    validate_model_for_ai "$AI_CLI" "$VAL_MODEL" "validation"
 }
 
 # Find tasks.md file
@@ -372,6 +479,7 @@ try:
     print(f"LAST_FEEDBACK_B64='{feedback_b64}'")
 
     print(f"SESSION_ID='{state.get('session_id', '')}'")
+    print(f"STORED_AI_CLI='{state.get('ai_cli', '')}'")
 
     circuit = state.get('circuit_breaker', {})
     print(f"NO_PROGRESS_COUNT={circuit.get('no_progress_count', 0)}")
@@ -380,6 +488,8 @@ try:
     # Store tasks file hash for validation
     print(f"STORED_TASKS_HASH='{state.get('tasks_file_hash', '')}'")
     print(f"STORED_TASKS_FILE='{state.get('tasks_file', '')}'")
+    print(f"STORED_IMPL_MODEL='{state.get('implementation_model', '')}'")
+    print(f"STORED_VAL_MODEL='{state.get('validation_model', '')}'")
 
     # Retry state for resume (defaults for backward compatibility)
     retry_state = state.get('retry_state', {})
@@ -585,6 +695,7 @@ try:
     print(f"Started:              {state.get('started_at', 'N/A')}")
     print(f"Last Updated:         {state.get('last_updated', 'N/A')}")
     print(f"Tasks File:           {state.get('tasks_file', 'N/A')}")
+    print(f"AI CLI:               {state.get('ai_cli', 'N/A')}")
     print(f"Implementation Model: {state.get('implementation_model', 'N/A')}")
     print(f"Validation Model:     {state.get('validation_model', 'N/A')}")
     print(f"Max Iterations:       {state.get('max_iterations', 'N/A')}")
@@ -681,6 +792,7 @@ save_state() {
     "verdict": "$verdict",
     "tasks_file": "$TASKS_FILE",
     "tasks_file_hash": "$tasks_hash",
+    "ai_cli": "$AI_CLI",
     "implementation_model": "$IMPL_MODEL",
     "validation_model": "$VAL_MODEL",
     "max_iterations": $MAX_ITERATIONS,
@@ -1183,6 +1295,57 @@ except Exception as e:
 PYTHON_EOF
 }
 
+# Extract text content from codex --json output (JSONL)
+# Args: json_file output_file
+# Returns: 0 on success, 1 on failure
+extract_text_from_codex_jsonl() {
+    local json_file=$1
+    local output_file=$2
+
+    python3 - "$json_file" "$output_file" << 'PYTHON_EOF'
+import sys
+import json
+
+json_file = sys.argv[1]
+output_file = sys.argv[2]
+
+text_parts = []
+
+def record_text(text):
+    if text:
+        text_parts.append(text)
+
+try:
+    with open(json_file, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            if obj.get('type') == 'item.completed':
+                item = obj.get('item', {})
+                item_type = item.get('type', '')
+                if item_type in ('agent_message', 'assistant_message'):
+                    record_text(item.get('text', ''))
+
+    final_text = '\n'.join(text_parts).strip()
+    if not final_text:
+        sys.exit(1)
+
+    with open(output_file, 'w') as f:
+        f.write(final_text)
+
+    sys.exit(0)
+except Exception as e:
+    print(f"Error extracting text: {e}", file=sys.stderr)
+    sys.exit(1)
+PYTHON_EOF
+}
+
 # Run claude with timeout and zombie detection (stream-json workaround)
 # Uses --output-format stream-json to detect completion via "type":"result" message
 # before the CLI hangs on "No messages returned" error
@@ -1318,6 +1481,91 @@ run_claude_with_timeout() {
     return 1
 }
 
+# Run codex with timeout and inactivity detection (jsonl output)
+# Args: output_file timeout_seconds(deprecated) start_attempt start_delay codex_args...
+# Returns: 0 on success, 1 on failure
+run_codex_with_timeout() {
+    local output_file="$1"
+    local timeout_secs="$2"
+    local start_attempt="${3:-1}"
+    local start_delay="${4:-5}"
+    shift 4
+    local -a codex_args=("$@")
+
+    local max_retries=$MAX_CLAUDE_RETRY
+    local retry_delay=$start_delay
+    local attempt=$start_attempt
+
+    local raw_json_file="${output_file%.txt}.jsonl"
+
+    while [[ $attempt -le $max_retries ]]; do
+        log_info "Codex attempt $attempt/$max_retries (inactivity: ${INACTIVITY_TIMEOUT}s, max: ${MAX_TOTAL_TIMEOUT}s, json mode)..." >&2
+
+        > "$output_file"
+        > "$raw_json_file"
+
+        codex exec --json --output-last-message "$output_file" "${codex_args[@]}" > "$raw_json_file" 2>&1 &
+        local codex_pid=$!
+
+        local elapsed=0
+        local last_activity_time=$(date +%s)
+        local last_file_size=0
+
+        while kill -0 "$codex_pid" 2>/dev/null; do
+            sleep 2
+            elapsed=$((elapsed + 2))
+
+            local current_size=$(stat -c %s "$raw_json_file" 2>/dev/null || stat -f %z "$raw_json_file" 2>/dev/null || echo 0)
+            if [[ "$current_size" -gt "$last_file_size" ]]; then
+                last_activity_time=$(date +%s)
+                last_file_size=$current_size
+            fi
+
+            local inactivity=$(($(date +%s) - last_activity_time))
+            if [[ $inactivity -ge $INACTIVITY_TIMEOUT ]]; then
+                log_warn "Inactivity timeout (${INACTIVITY_TIMEOUT}s with no output) - killing process" >&2
+                kill -9 "$codex_pid" 2>/dev/null || true
+                wait "$codex_pid" 2>/dev/null || true
+                break
+            fi
+
+            if [[ $elapsed -ge $MAX_TOTAL_TIMEOUT ]]; then
+                log_warn "Hard timeout (${MAX_TOTAL_TIMEOUT}s total) - killing process" >&2
+                kill -9 "$codex_pid" 2>/dev/null || true
+                wait "$codex_pid" 2>/dev/null || true
+                break
+            fi
+        done
+
+        wait "$codex_pid" 2>/dev/null || true
+
+        if [[ -s "$output_file" ]]; then
+            return 0
+        fi
+
+        if extract_text_from_codex_jsonl "$raw_json_file" "$output_file"; then
+            log_info "Successfully extracted text from codex json output" >&2
+            return 0
+        fi
+
+        if [[ $attempt -lt $max_retries ]]; then
+            CURRENT_RETRY_ATTEMPT=$((attempt + 1))
+            CURRENT_RETRY_DELAY=$((retry_delay * 2))
+
+            save_state "running" "$CURRENT_ITERATION"
+
+            log_warn "Attempt $attempt failed (no result received). Retrying in ${retry_delay}s..." >&2
+            sleep "$retry_delay"
+            retry_delay=$((retry_delay * 2))
+        fi
+
+        attempt=$((attempt + 1))
+    done
+
+    log_error "Codex failed after $max_retries attempts" >&2
+    return 1
+}
+
 # Run implementation phase
 run_implementation() {
     local iteration=$1
@@ -1326,28 +1574,13 @@ run_implementation() {
 
     # All logs go to stderr so they don't pollute the returned file path
     log_phase "IMPLEMENTATION PHASE - Iteration $iteration" >&2
+    log_info "AI CLI: $AI_CLI" >&2
     log_info "Model: $IMPL_MODEL" >&2
 
     local prompt
     prompt=$(generate_impl_prompt "$iteration" "$feedback")
 
-    local claude_args=(
-        --dangerously-skip-permissions
-        --model "$IMPL_MODEL"
-        --print
-        --max-turns "$MAX_TURNS"
-    )
-
-    if [[ -n "$VERBOSE" ]]; then
-        claude_args+=("$VERBOSE")
-    fi
-
-    # Prompt goes as positional argument at the end
-    claude_args+=("$prompt")
-
-    log_info "Running claude..." >&2
-
-    # Run claude with timeout and zombie detection
+    # Run AI with timeout and inactivity detection
     # Use saved retry state if resuming, otherwise start fresh
     local start_attempt=1
     local start_delay=5
@@ -1360,15 +1593,55 @@ run_implementation() {
 
     local impl_success=0
     set +e  # Temporarily disable exit on error
-    if run_claude_with_timeout "$output_file" 1800 "$start_attempt" "$start_delay" "${claude_args[@]}"; then
-        log_success "Implementation phase completed" >&2
-        impl_success=1
-        # Reset retry state after successful phase completion
-        CURRENT_RETRY_ATTEMPT=1
-        CURRENT_RETRY_DELAY=5
+    if [[ "$AI_CLI" == "codex" ]]; then
+        local -a codex_args=(
+            --dangerously-bypass-approvals-and-sandbox
+        )
+
+        if [[ -n "$IMPL_MODEL" && "$IMPL_MODEL" != "default" ]]; then
+            codex_args+=(-m "$IMPL_MODEL")
+        fi
+
+        if [[ -n "$VERBOSE" ]]; then
+            log_warn "Verbose flag is ignored for codex CLI" >&2
+        fi
+
+        codex_args+=("$prompt")
+
+        log_info "Running codex..." >&2
+        if run_codex_with_timeout "$output_file" 1800 "$start_attempt" "$start_delay" "${codex_args[@]}"; then
+            log_success "Implementation phase completed" >&2
+            impl_success=1
+            CURRENT_RETRY_ATTEMPT=1
+            CURRENT_RETRY_DELAY=5
+        else
+            log_error "Implementation phase failed after $MAX_CLAUDE_RETRY attempts" >&2
+            log_warn "Check if codex CLI is working: codex exec 'hello'" >&2
+        fi
     else
-        log_error "Implementation phase failed after $MAX_CLAUDE_RETRY attempts" >&2
-        log_warn "Check if claude CLI is working: claude --print 'hello'" >&2
+        local -a claude_args=(
+            --dangerously-skip-permissions
+            --model "$IMPL_MODEL"
+            --print
+            --max-turns "$MAX_TURNS"
+        )
+
+        if [[ -n "$VERBOSE" ]]; then
+            claude_args+=("$VERBOSE")
+        fi
+
+        claude_args+=("$prompt")
+
+        log_info "Running claude..." >&2
+        if run_claude_with_timeout "$output_file" 1800 "$start_attempt" "$start_delay" "${claude_args[@]}"; then
+            log_success "Implementation phase completed" >&2
+            impl_success=1
+            CURRENT_RETRY_ATTEMPT=1
+            CURRENT_RETRY_DELAY=5
+        else
+            log_error "Implementation phase failed after $MAX_CLAUDE_RETRY attempts" >&2
+            log_warn "Check if claude CLI is working: claude --print 'hello'" >&2
+        fi
     fi
     set -e  # Re-enable exit on error
 
@@ -1398,6 +1671,7 @@ run_validation() {
 
     # All logs go to stderr so they don't pollute the returned file path
     log_phase "VALIDATION PHASE - Iteration $iteration" >&2
+    log_info "AI CLI: $AI_CLI" >&2
     log_info "Model: $VAL_MODEL" >&2
 
     local impl_output
@@ -1406,23 +1680,7 @@ run_validation() {
     local prompt
     prompt=$(generate_val_prompt "$impl_output")
 
-    local claude_args=(
-        --dangerously-skip-permissions
-        --model "$VAL_MODEL"
-        --print
-        --max-turns "$MAX_TURNS"
-    )
-
-    if [[ -n "$VERBOSE" ]]; then
-        claude_args+=("$VERBOSE")
-    fi
-
-    # Prompt goes as positional argument at the end
-    claude_args+=("$prompt")
-
-    log_info "Running validation..." >&2
-
-    # Run claude with timeout and zombie detection
+    # Run AI with timeout and inactivity detection
     # Use saved retry state if resuming, otherwise start fresh
     local start_attempt=1
     local start_delay=5
@@ -1434,14 +1692,53 @@ run_validation() {
     fi
 
     set +e  # Temporarily disable exit on error
-    if run_claude_with_timeout "$output_file" 1800 "$start_attempt" "$start_delay" "${claude_args[@]}"; then
-        log_success "Validation phase completed" >&2
-        # Reset retry state after successful phase completion
-        CURRENT_RETRY_ATTEMPT=1
-        CURRENT_RETRY_DELAY=5
+    if [[ "$AI_CLI" == "codex" ]]; then
+        local -a codex_args=(
+            --dangerously-bypass-approvals-and-sandbox
+        )
+
+        if [[ -n "$VAL_MODEL" && "$VAL_MODEL" != "default" ]]; then
+            codex_args+=(-m "$VAL_MODEL")
+        fi
+
+        if [[ -n "$VERBOSE" ]]; then
+            log_warn "Verbose flag is ignored for codex CLI" >&2
+        fi
+
+        codex_args+=("$prompt")
+
+        log_info "Running validation..." >&2
+        if run_codex_with_timeout "$output_file" 1800 "$start_attempt" "$start_delay" "${codex_args[@]}"; then
+            log_success "Validation phase completed" >&2
+            CURRENT_RETRY_ATTEMPT=1
+            CURRENT_RETRY_DELAY=5
+        else
+            log_error "Validation phase failed - see output file for details" >&2
+            log_warn "Check if codex CLI is working: codex exec 'hello'" >&2
+        fi
     else
-        log_error "Validation phase failed - see output file for details" >&2
-        log_warn "Check if claude CLI is working: claude --print 'hello'" >&2
+        local -a claude_args=(
+            --dangerously-skip-permissions
+            --model "$VAL_MODEL"
+            --print
+            --max-turns "$MAX_TURNS"
+        )
+
+        if [[ -n "$VERBOSE" ]]; then
+            claude_args+=("$VERBOSE")
+        fi
+
+        claude_args+=("$prompt")
+
+        log_info "Running validation..." >&2
+        if run_claude_with_timeout "$output_file" 1800 "$start_attempt" "$start_delay" "${claude_args[@]}"; then
+            log_success "Validation phase completed" >&2
+            CURRENT_RETRY_ATTEMPT=1
+            CURRENT_RETRY_DELAY=5
+        else
+            log_error "Validation phase failed - see output file for details" >&2
+            log_warn "Check if claude CLI is working: claude --print 'hello'" >&2
+        fi
     fi
     set -e  # Re-enable exit on error
 
@@ -1457,6 +1754,8 @@ run_validation() {
 # Main loop
 main() {
     parse_args "$@"
+
+    set_default_models_for_ai
 
     # Handle --status flag first
     if [[ -n "$STATUS_FLAG" ]]; then
@@ -1504,6 +1803,27 @@ main() {
             if [[ -n "$STORED_TASKS_FILE" && -f "$STORED_TASKS_FILE" ]]; then
                 TASKS_FILE="$STORED_TASKS_FILE"
                 log_info "Restored tasks file from state: $TASKS_FILE"
+            fi
+
+            # Restore AI CLI from saved state unless overridden
+            local use_stored_models=1
+            if [[ -z "$OVERRIDE_AI" && -n "$STORED_AI_CLI" ]]; then
+                AI_CLI="$STORED_AI_CLI"
+                log_info "Restored AI CLI from state: $AI_CLI"
+            elif [[ -n "$OVERRIDE_AI" && -n "$STORED_AI_CLI" && "$STORED_AI_CLI" != "$AI_CLI" ]]; then
+                log_info "Using AI CLI from command line (overriding saved state)"
+                set_default_models_for_ai
+                use_stored_models=0
+                log_warn "AI CLI changed; using default models for $AI_CLI where not overridden"
+            fi
+
+            if [[ $use_stored_models -eq 1 ]]; then
+                if [[ -z "$OVERRIDE_IMPL_MODEL" && -n "$STORED_IMPL_MODEL" ]]; then
+                    IMPL_MODEL="$STORED_IMPL_MODEL"
+                fi
+                if [[ -z "$OVERRIDE_VAL_MODEL" && -n "$STORED_VAL_MODEL" ]]; then
+                    VAL_MODEL="$STORED_VAL_MODEL"
+                fi
             fi
 
             # Validate state integrity (disable set -e temporarily)
@@ -1560,17 +1880,18 @@ PYTHON_EOF
 
             log_info "Resumed from iteration $iteration, phase: $CURRENT_PHASE"
 
-            # If models were overridden via command line, use them
             if [[ -z "$OVERRIDE_MODELS" ]]; then
-                log_info "Using models from saved state"
+                log_info "Using models from saved state/defaults"
             else
-                log_info "Using models from command line (overriding saved state)"
+                log_info "Using command line models where provided"
             fi
         else
             log_error "Failed to load state file"
             exit 1
         fi
     fi
+
+    validate_models_for_ai
 
     # Count initial tasks
     local initial_unchecked
@@ -1595,6 +1916,7 @@ PYTHON_EOF
     if [[ $resuming -eq 0 ]]; then
         init_state_dir
         log_summary "Started Ralph Loop with $initial_unchecked unchecked tasks"
+        log_summary "AI CLI: $AI_CLI"
         log_summary "Implementation model: $IMPL_MODEL, Validation model: $VAL_MODEL"
 
         SCRIPT_START_TIME=$(get_timestamp)
@@ -1611,6 +1933,7 @@ PYTHON_EOF
     fi
 
     log_info "Max iterations: $MAX_ITERATIONS"
+    log_info "AI CLI: $AI_CLI"
     log_info "Implementation model: $IMPL_MODEL"
     log_info "Validation model: $VAL_MODEL"
 
