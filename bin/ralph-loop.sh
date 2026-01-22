@@ -56,6 +56,7 @@ RESUME_FLAG=""
 RESUME_FORCE=""
 CLEAN_FLAG=""
 STATUS_FLAG=""
+CANCEL_FLAG=""
 OVERRIDE_MODELS=""
 
 # State tracking for resume
@@ -170,6 +171,7 @@ Options:
   --resume-force             Resume even if tasks.md has changed
   --clean                    Start fresh, delete existing .ralph-loop state
   --status                   Show current session status without running
+  --cancel                   Cancel an active/interrupted session and exit
   -h, --help                 Show this help message
 
 Timeout Configuration:
@@ -195,6 +197,8 @@ Session Management:
   When a session is interrupted (Ctrl+C), state is automatically saved.
   Running the script again will detect the interrupted session and prompt you
   to either resume or start fresh.
+
+  Use --cancel to abort an interrupted session without resuming or starting fresh.
 
 Exit Codes:
   0 - All tasks completed successfully
@@ -329,6 +333,10 @@ parse_args() {
                 ;;
             --status)
                 STATUS_FLAG="1"
+                shift
+                ;;
+            --cancel)
+                CANCEL_FLAG="1"
                 shift
                 ;;
             -h|--help)
@@ -1988,6 +1996,45 @@ main() {
         else
             log_info "No state directory to clean"
         fi
+    fi
+
+    # Handle --cancel flag
+    if [[ -n "$CANCEL_FLAG" ]]; then
+        local state_file="$STATE_DIR/current-state.json"
+
+        if [[ ! -f "$state_file" ]]; then
+            log_error "No active session to cancel"
+            exit 1
+        fi
+
+        # Read current status
+        local stored_status
+        stored_status=$(python3 - "$state_file" << 'PYTHON_EOF'
+import sys
+import json
+
+try:
+    with open(sys.argv[1], 'r') as f:
+        state = json.load(f)
+    print(state.get('status', 'UNKNOWN'))
+except:
+    print('ERROR')
+PYTHON_EOF
+)
+
+        if [[ "$stored_status" == "COMPLETE" ]]; then
+            log_error "Session already complete, nothing to cancel"
+            log_info "Use --clean to remove completed session state"
+            exit 1
+        fi
+
+        log_info "Cancelling session with status: $stored_status"
+
+        # Remove state directory
+        rm -rf "$STATE_DIR"
+
+        log_success "Session cancelled and state removed"
+        exit 0
     fi
 
     echo -e "${CYAN}"
