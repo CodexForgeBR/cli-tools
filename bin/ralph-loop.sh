@@ -65,6 +65,12 @@ STORED_AI_CLI=""
 STORED_IMPL_MODEL=""
 STORED_VAL_MODEL=""
 
+# Cross-validation configuration
+CROSS_VALIDATE=1              # ON by default
+CROSS_MODEL=""                # Model for cross-validation AI
+CROSS_AI=""                   # Auto-set: opposite of AI_CLI
+CROSS_AI_AVAILABLE=0          # Whether alternate AI CLI is installed
+
 # Retry state tracking for resume
 CURRENT_RETRY_ATTEMPT=1
 CURRENT_RETRY_DELAY=5
@@ -157,6 +163,8 @@ Options:
   --implementation-model M   Model for implementation (default: opus for claude, config default for codex)
   --validation-model M       Model for validation (default: opus for claude, config default for codex)
   --tasks-file PATH          Path to tasks.md (auto-detects if not specified)
+  --no-cross-validate        Disable cross-validation phase (enabled by default)
+  --cross-model M            Model for cross-validation AI (default: opposite AI's default)
   --resume                   Resume from last interrupted session
   --resume-force             Resume even if tasks.md has changed
   --clean                    Start fresh, delete existing .ralph-loop state
@@ -168,6 +176,17 @@ Timeout Configuration:
   Inactivity timeout: 600s (kills process if no output for 10 minutes)
   Hard cap timeout: 7200s (absolute 2-hour maximum per invocation)
   Both timeouts reset when Claude produces output (activity-based)
+
+Cross-Validation:
+  By default, when validation returns COMPLETE, a cross-validation phase runs
+  using the OPPOSITE AI (claude → codex, or codex → claude) to independently
+  verify completion. This provides an additional layer of verification.
+
+  Cross-validation verdicts:
+    CONFIRMED - Agrees with validation, truly complete
+    REJECTED  - Disagrees, provides feedback and continues loop
+
+  Disable with --no-cross-validate if only single-AI validation is desired.
 
 Session Management:
   When a session is interrupted (Ctrl+C), state is automatically saved.
@@ -187,6 +206,8 @@ Examples:
   $(basename "$0") --implementation-model sonnet --validation-model haiku
   $(basename "$0") --tasks-file specs/feature/tasks.md -v
   $(basename "$0") --ai codex
+  $(basename "$0") --ai claude --cross-model o1
+  $(basename "$0") --no-cross-validate
   $(basename "$0") --resume
   $(basename "$0") --status
   $(basename "$0") --clean
@@ -270,6 +291,18 @@ parse_args() {
                 TASKS_FILE=$2
                 shift 2
                 ;;
+            --no-cross-validate)
+                CROSS_VALIDATE=0
+                shift
+                ;;
+            --cross-model)
+                if [[ -z "$2" ]]; then
+                    log_error "Missing value for --cross-model"
+                    exit 1
+                fi
+                CROSS_MODEL="$2"
+                shift 2
+                ;;
             --resume)
                 RESUME_FLAG="1"
                 shift
@@ -316,6 +349,31 @@ set_default_models_for_ai() {
         if [[ -z "$OVERRIDE_VAL_MODEL" ]]; then
             VAL_MODEL="opus"
         fi
+    fi
+}
+
+# Set up cross-validation AI (opposite of main AI)
+set_cross_validation_ai() {
+    if [[ "$CROSS_VALIDATE" -eq 0 ]]; then
+        return
+    fi
+
+    # Determine opposite AI
+    if [[ "$AI_CLI" == "claude" ]]; then
+        CROSS_AI="codex"
+        [[ -z "$CROSS_MODEL" ]] && CROSS_MODEL="default"
+    else
+        CROSS_AI="claude"
+        [[ -z "$CROSS_MODEL" ]] && CROSS_MODEL="opus"
+    fi
+
+    # Check if alternate AI is installed
+    if command -v "$CROSS_AI" &>/dev/null; then
+        CROSS_AI_AVAILABLE=1
+        log_info "Cross-validation enabled: will use $CROSS_AI ($CROSS_MODEL)"
+    else
+        CROSS_AI_AVAILABLE=0
+        log_warn "Cross-validation: $CROSS_AI not found, will skip phase 3"
     fi
 }
 
@@ -780,6 +838,12 @@ save_state() {
     local escaped_feedback
     escaped_feedback=$(echo "$LAST_FEEDBACK" | python3 -c "import sys, json; print(json.dumps(sys.stdin.read()))" | sed 's/^"//; s/"$//')
 
+    # Determine cross_ai_available status
+    local cross_ai_avail="false"
+    if [[ "$CROSS_AI_AVAILABLE" -eq 1 ]]; then
+        cross_ai_avail="true"
+    fi
+
     cat > "$STATE_DIR/current-state.json" << EOF
 {
     "schema_version": 2,
@@ -796,6 +860,12 @@ save_state() {
     "implementation_model": "$IMPL_MODEL",
     "validation_model": "$VAL_MODEL",
     "max_iterations": $MAX_ITERATIONS,
+    "cross_validation": {
+        "enabled": $CROSS_VALIDATE,
+        "ai": "$CROSS_AI",
+        "model": "$CROSS_MODEL",
+        "available": $cross_ai_avail
+    },
     "circuit_breaker": {
         "no_progress_count": $NO_PROGRESS_COUNT,
         "last_unchecked_count": ${LAST_CHECKED_COUNT:-0}
@@ -1045,6 +1115,62 @@ OUTPUT FORMAT - You MUST output this exact JSON format at the end (the script pa
 \`\`\`
 
 NOW: Run git status, git diff --stat, and verify each claim. Be ruthless.
+EOF
+}
+
+# Generate cross-validation prompt
+generate_cross_val_prompt() {
+    local val_output_file=$1
+
+    cat << EOF
+YOU ARE AN INDEPENDENT AUDITOR. A DIFFERENT AI JUST CLAIMED ALL TASKS ARE COMPLETE.
+YOUR JOB IS TO VERIFY THIS INDEPENDENTLY. TRUST NOTHING. CHECK EVERYTHING.
+
+You are a DIFFERENT AI system providing a second opinion.
+The implementation was done by: $AI_CLI
+You are: $CROSS_AI
+
+TASKS FILE: $TASKS_FILE
+
+MANDATORY STEPS:
+1. Read the tasks file: $TASKS_FILE
+2. For EACH task marked [x], verify it was ACTUALLY done
+3. Check the actual code/files - do NOT trust the previous AI's claims
+4. Run git status, git diff to see what actually changed
+5. Verify that all changes are complete and correct
+
+WHAT TO LOOK FOR:
+- Tasks marked [x] but code doesn't reflect the change
+- Incomplete implementations (half-done work)
+- Code that doesn't match task requirements
+- Missing files that should exist
+- Files that should be deleted but still exist
+- Tests that don't actually test production code
+
+THE PREVIOUS VALIDATION VERDICT:
+The validator ($AI_CLI) claimed all tasks are COMPLETE.
+You must independently verify this claim.
+
+OUTPUT FORMAT:
+\`\`\`json
+{
+  "RALPH_CROSS_VALIDATION": {
+    "verdict": "CONFIRMED|REJECTED",
+    "tasks_verified": <number of tasks you verified>,
+    "discrepancies_found": <number of issues discovered>,
+    "discrepancies": [
+      {"task_id": "T001", "claimed": "...", "actual": "..."}
+    ],
+    "feedback": "If REJECTED, what needs fixing"
+  }
+}
+\`\`\`
+
+VERDICT MEANINGS:
+- CONFIRMED: You independently agree all tasks are complete and correct
+- REJECTED: You found problems - provide specific feedback for implementation AI
+
+BEGIN YOUR INDEPENDENT VERIFICATION NOW.
 EOF
 }
 
@@ -1751,11 +1877,90 @@ run_validation() {
     echo "$output_file"
 }
 
+# Run cross-validation phase
+run_cross_validation() {
+    local iteration=$1
+    local val_output_file=$2
+    local output_file="$STATE_DIR/cross-val-output-${iteration}.txt"
+
+    # All logs go to stderr
+    log_phase "CROSS-VALIDATION PHASE - Iteration $iteration" >&2
+    log_info "Using opposite AI: $CROSS_AI" >&2
+    log_info "Model: $CROSS_MODEL" >&2
+
+    local prompt
+    prompt=$(generate_cross_val_prompt "$val_output_file")
+
+    # Use saved retry state if resuming, otherwise start fresh
+    local start_attempt=1
+    local start_delay=5
+    if [[ $RESUMING_RETRY -eq 1 ]]; then
+        start_attempt=$CURRENT_RETRY_ATTEMPT
+        start_delay=$CURRENT_RETRY_DELAY
+        RESUMING_RETRY=0
+        log_info "Resuming from retry attempt $start_attempt with ${start_delay}s delay" >&2
+    fi
+
+    set +e  # Temporarily disable exit on error
+    if [[ "$CROSS_AI" == "codex" ]]; then
+        local -a codex_args=(
+            --dangerously-bypass-approvals-and-sandbox
+        )
+
+        if [[ -n "$CROSS_MODEL" && "$CROSS_MODEL" != "default" ]]; then
+            codex_args+=(-m "$CROSS_MODEL")
+        fi
+
+        codex_args+=("$prompt")
+
+        log_info "Running cross-validation with codex..." >&2
+        if run_codex_with_timeout "$output_file" 1800 "$start_attempt" "$start_delay" "${codex_args[@]}"; then
+            log_success "Cross-validation phase completed" >&2
+            CURRENT_RETRY_ATTEMPT=1
+            CURRENT_RETRY_DELAY=5
+        else
+            log_error "Cross-validation phase failed - see output file for details" >&2
+        fi
+    else
+        local -a claude_args=(
+            --dangerously-skip-permissions
+            --model "$CROSS_MODEL"
+            --print
+            --max-turns "$MAX_TURNS"
+        )
+
+        if [[ -n "$VERBOSE" ]]; then
+            claude_args+=("$VERBOSE")
+        fi
+
+        claude_args+=("$prompt")
+
+        log_info "Running cross-validation with claude..." >&2
+        if run_claude_with_timeout "$output_file" 1800 "$start_attempt" "$start_delay" "${claude_args[@]}"; then
+            log_success "Cross-validation phase completed" >&2
+            CURRENT_RETRY_ATTEMPT=1
+            CURRENT_RETRY_DELAY=5
+        else
+            log_error "Cross-validation phase failed - see output file for details" >&2
+        fi
+    fi
+    set -e  # Re-enable exit on error
+
+    # Display output
+    cat "$output_file" >&2
+
+    save_iteration_state "$iteration" "cross_validation" "$output_file"
+    log_summary "Iteration $iteration: Cross-validation phase completed"
+
+    echo "$output_file"
+}
+
 # Main loop
 main() {
     parse_args "$@"
 
     set_default_models_for_ai
+    set_cross_validation_ai
 
     # Handle --status flag first
     if [[ -n "$STATUS_FLAG" ]]; then
@@ -1947,7 +2152,93 @@ PYTHON_EOF
         if [[ $resuming -eq 1 && $iteration -eq $ITERATION ]]; then
             resuming=0  # Only resume once
 
-            if [[ "$CURRENT_PHASE" == "validation" ]]; then
+            if [[ "$CURRENT_PHASE" == "cross_validation" ]]; then
+                # Skip to cross-validation if we were interrupted during cross-validation
+                impl_output_file="$STATE_DIR/impl-output-${iteration}.txt"
+                val_output_file="$STATE_DIR/val-output-${iteration}.txt"
+
+                if [[ -f "$impl_output_file" && -f "$val_output_file" ]]; then
+                    log_info "Resuming at cross-validation phase (implementation and validation already completed)"
+                    skip_implementation=1
+
+                    ITERATION_START_TIME=$(get_timestamp)
+
+                    echo -e "\n${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
+                    echo -e "${YELLOW}          ITERATION $iteration / $MAX_ITERATIONS (RESUMED)${NC}"
+                    echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}\n"
+
+                    # Save state before cross-validation
+                    CURRENT_PHASE="cross_validation"
+                    save_state "running" "$iteration"
+
+                    # Run cross-validation
+                    local cross_val_file
+                    cross_val_file=$(run_cross_validation "$iteration" "$val_output_file")
+
+                    # Parse and handle cross-validation verdict
+                    local cross_val_json
+                    cross_val_json=$(extract_json_from_file "$cross_val_file" "RALPH_CROSS_VALIDATION") || true
+
+                    if [[ -n "$cross_val_json" ]]; then
+                        local cross_verdict
+                        cross_verdict=$(echo "$cross_val_json" | python3 -c "
+import sys
+import json
+
+try:
+    data = json.load(sys.stdin)
+    cross_val = data.get('RALPH_CROSS_VALIDATION', {})
+    print(cross_val.get('verdict', 'UNKNOWN'))
+except:
+    print('PARSE_ERROR')
+" 2>/dev/null || echo "PARSE_ERROR")
+
+                        if [[ "$cross_verdict" == "CONFIRMED" ]]; then
+                            local iter_elapsed=$(($(get_timestamp) - ITERATION_START_TIME))
+                            local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
+
+                            log_success "Cross-validation CONFIRMED completion"
+                            CURRENT_PHASE="complete"
+                            save_state "COMPLETE" "$iteration" "COMPLETE"
+                            log_summary "SUCCESS: All tasks completed and cross-validated after $iteration iterations in $(format_duration $total_elapsed)"
+
+                            echo -e "\n${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+                            echo -e "${GREEN}║                    RALPH LOOP COMPLETE                        ║${NC}"
+                            echo -e "${GREEN}║         All tasks verified and cross-validated!               ║${NC}"
+                            echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+                            printf "${GREEN}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
+                            echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+
+                            exit $EXIT_SUCCESS
+                        else
+                            # REJECTED - set feedback and continue to next iteration
+                            local cross_feedback
+                            cross_feedback=$(echo "$cross_val_json" | python3 -c "
+import sys
+import json
+
+try:
+    data = json.load(sys.stdin)
+    cross_val = data.get('RALPH_CROSS_VALIDATION', {})
+    print(cross_val.get('feedback', 'Cross-validation found issues'))
+except Exception as e:
+    print(f'Error parsing feedback: {e}')
+" 2>/dev/null || echo "Cross-validation rejected completion")
+
+                            feedback="Cross-validation by $CROSS_AI found issues: $cross_feedback"
+                            LAST_FEEDBACK="$feedback"
+                            log_warn "Cross-validation REJECTED - continuing to next iteration"
+                        fi
+                    else
+                        log_warn "Could not parse cross-validation JSON, restarting iteration"
+                    fi
+
+                    # Continue to next iteration
+                    continue
+                else
+                    log_warn "Implementation or validation output not found, restarting iteration from implementation"
+                fi
+            elif [[ "$CURRENT_PHASE" == "validation" ]]; then
                 # Skip to validation if we were interrupted during validation
                 impl_output_file="$STATE_DIR/impl-output-${iteration}.txt"
 
@@ -2072,22 +2363,133 @@ PYTHON_EOF
 
                 if [[ "$final_unchecked" -eq 0 ]]; then
                     # True completion - no unchecked tasks
-                    local iter_elapsed=$(($(get_timestamp) - ITERATION_START_TIME))
-                    local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
+                    # Check if cross-validation should run
+                    if [[ "$CROSS_VALIDATE" -eq 1 && "$CROSS_AI_AVAILABLE" -eq 1 ]]; then
+                        log_info "Running cross-validation with $CROSS_AI..."
 
-                    log_success "All tasks completed and verified!"
-                    CURRENT_PHASE="complete"
-                    save_state "COMPLETE" "$iteration" "COMPLETE"
-                    log_summary "SUCCESS: All tasks completed after $iteration iterations in $(format_duration $total_elapsed)"
+                        # Run cross-validation
+                        CURRENT_PHASE="cross_validation"
+                        save_state "running" "$iteration"
 
-                    echo -e "\n${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-                    echo -e "${GREEN}║                    RALPH LOOP COMPLETE                        ║${NC}"
-                    echo -e "${GREEN}║              All tasks verified and complete!                 ║${NC}"
-                    echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
-                    printf "${GREEN}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
-                    echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+                        local cross_val_file
+                        cross_val_file=$(run_cross_validation "$iteration" "$val_output_file")
 
-                    exit $EXIT_SUCCESS
+                        # Parse cross-validation output
+                        local cross_val_json
+                        cross_val_json=$(extract_json_from_file "$cross_val_file" "RALPH_CROSS_VALIDATION") || true
+
+                        if [[ -z "$cross_val_json" ]]; then
+                            log_warn "Could not parse cross-validation JSON, assuming confirmed"
+                            # Treat as confirmed if we can't parse
+                            local iter_elapsed=$(($(get_timestamp) - ITERATION_START_TIME))
+                            local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
+
+                            log_success "All tasks completed and verified!"
+                            CURRENT_PHASE="complete"
+                            save_state "COMPLETE" "$iteration" "COMPLETE"
+                            log_summary "SUCCESS: All tasks completed after $iteration iterations in $(format_duration $total_elapsed)"
+
+                            echo -e "\n${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+                            echo -e "${GREEN}║                    RALPH LOOP COMPLETE                        ║${NC}"
+                            echo -e "${GREEN}║              All tasks verified and complete!                 ║${NC}"
+                            echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+                            printf "${GREEN}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
+                            echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+
+                            exit $EXIT_SUCCESS
+                        fi
+
+                        local cross_verdict
+                        cross_verdict=$(echo "$cross_val_json" | python3 -c "
+import sys
+import json
+
+try:
+    data = json.load(sys.stdin)
+    cross_val = data.get('RALPH_CROSS_VALIDATION', {})
+    print(cross_val.get('verdict', 'UNKNOWN'))
+except:
+    print('PARSE_ERROR')
+" 2>/dev/null || echo "PARSE_ERROR")
+
+                        log_info "Cross-validation verdict: $cross_verdict"
+
+                        if [[ "$cross_verdict" == "CONFIRMED" ]]; then
+                            local iter_elapsed=$(($(get_timestamp) - ITERATION_START_TIME))
+                            local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
+
+                            log_success "Cross-validation CONFIRMED completion"
+                            CURRENT_PHASE="complete"
+                            save_state "COMPLETE" "$iteration" "COMPLETE"
+                            log_summary "SUCCESS: All tasks completed and cross-validated after $iteration iterations in $(format_duration $total_elapsed)"
+
+                            echo -e "\n${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+                            echo -e "${GREEN}║                    RALPH LOOP COMPLETE                        ║${NC}"
+                            echo -e "${GREEN}║         All tasks verified and cross-validated!               ║${NC}"
+                            echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+                            printf "${GREEN}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
+                            echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+
+                            exit $EXIT_SUCCESS
+                        else
+                            # REJECTED - continue loop with cross-validation feedback
+                            log_warn "Cross-validation REJECTED - continuing loop"
+                            local cross_feedback
+                            cross_feedback=$(echo "$cross_val_json" | python3 -c "
+import sys
+import json
+
+try:
+    data = json.load(sys.stdin)
+    cross_val = data.get('RALPH_CROSS_VALIDATION', {})
+    print(cross_val.get('feedback', 'Cross-validation found issues'))
+except Exception as e:
+    print(f'Error parsing feedback: {e}')
+" 2>/dev/null || echo "Cross-validation rejected completion")
+
+                            feedback="Cross-validation by $CROSS_AI found issues: $cross_feedback"
+                            LAST_FEEDBACK="$feedback"
+                            log_info "Feedback: $feedback"
+                            # Continue loop (don't exit)
+                        fi
+                    elif [[ "$CROSS_VALIDATE" -eq 1 && "$CROSS_AI_AVAILABLE" -eq 0 ]]; then
+                        # Alternate AI not available, skip with warning (already logged at startup)
+                        log_warn "Skipping cross-validation ($CROSS_AI not installed)"
+                        local iter_elapsed=$(($(get_timestamp) - ITERATION_START_TIME))
+                        local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
+
+                        log_success "All tasks completed and verified!"
+                        CURRENT_PHASE="complete"
+                        save_state "COMPLETE" "$iteration" "COMPLETE"
+                        log_summary "SUCCESS: All tasks completed after $iteration iterations in $(format_duration $total_elapsed)"
+
+                        echo -e "\n${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+                        echo -e "${GREEN}║                    RALPH LOOP COMPLETE                        ║${NC}"
+                        echo -e "${GREEN}║              All tasks verified and complete!                 ║${NC}"
+                        echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+                        printf "${GREEN}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
+                        echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+
+                        exit $EXIT_SUCCESS
+                    else
+                        # Cross-validation disabled, original behavior
+                        local iter_elapsed=$(($(get_timestamp) - ITERATION_START_TIME))
+                        local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
+
+                        log_success "All tasks completed and verified!"
+                        CURRENT_PHASE="complete"
+                        save_state "COMPLETE" "$iteration" "COMPLETE"
+                        log_summary "SUCCESS: All tasks completed after $iteration iterations in $(format_duration $total_elapsed)"
+
+                        echo -e "\n${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+                        echo -e "${GREEN}║                    RALPH LOOP COMPLETE                        ║${NC}"
+                        echo -e "${GREEN}║              All tasks verified and complete!                 ║${NC}"
+                        echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+                        printf "${GREEN}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
+                        echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+
+                        exit $EXIT_SUCCESS
+                    fi
                 elif [[ $doable_unchecked -gt 0 ]]; then
                     # Override COMPLETE - there are still doable tasks
                     log_warn "Validator said COMPLETE but $doable_unchecked tasks remain unchecked and not blocked"
