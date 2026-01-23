@@ -41,6 +41,7 @@ AI_CLI="claude"
 OVERRIDE_AI=""
 OVERRIDE_IMPL_MODEL=""
 OVERRIDE_VAL_MODEL=""
+OVERRIDE_MAX_ITERATIONS=""
 STATE_DIR=".ralph-loop"
 SCRIPT_START_TIME=""
 ITERATION_START_TIME=""
@@ -282,6 +283,7 @@ parse_args() {
                     exit 1
                 fi
                 MAX_ITERATIONS=$2
+                OVERRIDE_MAX_ITERATIONS="1"
                 shift 2
                 ;;
             --max-claude-retry)
@@ -633,6 +635,7 @@ try:
     # Restore plan validation settings
     print(f"STORED_ORIGINAL_PLAN_FILE='{state.get('original_plan_file', '')}'")
     print(f"STORED_GITHUB_ISSUE='{state.get('github_issue', '')}'")
+    print(f"STORED_MAX_ITERATIONS={state.get('max_iterations', 20)}")
 
     # Restore learnings settings (defaults for backward compatibility)
     learnings = state.get('learnings', {})
@@ -2576,6 +2579,14 @@ PYTHON_EOF
                 if [[ -z "$OVERRIDE_VAL_MODEL" && -n "$STORED_VAL_MODEL" ]]; then
                     VAL_MODEL="$STORED_VAL_MODEL"
                 fi
+            fi
+
+            # Restore max_iterations from saved state unless overridden
+            if [[ -z "$OVERRIDE_MAX_ITERATIONS" && -n "$STORED_MAX_ITERATIONS" ]]; then
+                MAX_ITERATIONS="$STORED_MAX_ITERATIONS"
+                log_info "Restored max_iterations from state: $MAX_ITERATIONS"
+            elif [[ -n "$OVERRIDE_MAX_ITERATIONS" ]]; then
+                log_info "Using command-line max_iterations: $MAX_ITERATIONS (overriding stored value)"
             fi
 
             # Validate state integrity (disable set -e temporarily)
