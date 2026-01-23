@@ -62,6 +62,7 @@ OVERRIDE_MODELS=""
 
 # Original plan validation
 ORIGINAL_PLAN_FILE=""           # Path to the original plan file (optional)
+GITHUB_ISSUE=""                 # GitHub issue URL or number (optional)
 
 # State tracking for resume
 CURRENT_PHASE=""
@@ -170,6 +171,8 @@ Options:
   --validation-model M       Model for validation (default: opus for claude, config default for codex)
   --tasks-file PATH          Path to tasks.md (auto-detects if not specified)
   --original-plan-file PATH  Path to original plan file for plan validation
+  --github-issue <URL|NUM>   GitHub issue URL or number to use as original plan
+                             (mutually exclusive with --original-plan-file)
   --no-cross-validate        Disable cross-validation phase (enabled by default)
   --cross-model M            Model for cross-validation AI (default: opposite AI's default)
   --resume                   Resume from last interrupted session
@@ -370,6 +373,14 @@ parse_args() {
                     exit 1
                 fi
                 ORIGINAL_PLAN_FILE="$2"
+                shift 2
+                ;;
+            --github-issue)
+                if [[ -z "$2" ]]; then
+                    log_error "Missing value for --github-issue"
+                    exit 1
+                fi
+                GITHUB_ISSUE="$2"
                 shift 2
                 ;;
             -h|--help)
@@ -600,6 +611,10 @@ try:
     print(f"STORED_TASKS_FILE='{state.get('tasks_file', '')}'")
     print(f"STORED_IMPL_MODEL='{state.get('implementation_model', '')}'")
     print(f"STORED_VAL_MODEL='{state.get('validation_model', '')}'")
+
+    # Restore plan validation settings
+    print(f"STORED_ORIGINAL_PLAN_FILE='{state.get('original_plan_file', '')}'")
+    print(f"STORED_GITHUB_ISSUE='{state.get('github_issue', '')}'")
 
     # Retry state for resume (defaults for backward compatibility)
     retry_state = state.get('retry_state', {})
@@ -912,6 +927,8 @@ save_state() {
     "implementation_model": "$IMPL_MODEL",
     "validation_model": "$VAL_MODEL",
     "max_iterations": $MAX_ITERATIONS,
+    "original_plan_file": "$ORIGINAL_PLAN_FILE",
+    "github_issue": "$GITHUB_ISSUE",
     "cross_validation": {
         "enabled": $CROSS_VALIDATE,
         "ai": "$CROSS_AI",
@@ -2282,6 +2299,13 @@ main() {
     set_default_models_for_ai
     set_cross_validation_ai
 
+    # Validate mutually exclusive flags
+    if [[ -n "$ORIGINAL_PLAN_FILE" && -n "$GITHUB_ISSUE" ]]; then
+        log_error "Cannot specify both --original-plan-file and --github-issue"
+        log_error "Use one or the other to provide the original plan"
+        exit 1
+    fi
+
     # Handle --status flag first
     if [[ -n "$STATUS_FLAG" ]]; then
         show_status
@@ -2367,6 +2391,16 @@ PYTHON_EOF
             if [[ -n "$STORED_TASKS_FILE" && -f "$STORED_TASKS_FILE" ]]; then
                 TASKS_FILE="$STORED_TASKS_FILE"
                 log_info "Restored tasks file from state: $TASKS_FILE"
+            fi
+
+            # Restore plan validation settings from saved state
+            if [[ -n "$STORED_ORIGINAL_PLAN_FILE" ]]; then
+                ORIGINAL_PLAN_FILE="$STORED_ORIGINAL_PLAN_FILE"
+                log_info "Restored original plan file from state: $ORIGINAL_PLAN_FILE"
+            fi
+            if [[ -n "$STORED_GITHUB_ISSUE" ]]; then
+                GITHUB_ISSUE="$STORED_GITHUB_ISSUE"
+                log_info "Restored GitHub issue from state: $GITHUB_ISSUE"
             fi
 
             # Restore AI CLI from saved state unless overridden
@@ -2501,8 +2535,65 @@ PYTHON_EOF
     log_info "Implementation model: $IMPL_MODEL"
     log_info "Validation model: $VAL_MODEL"
 
-    # Tasks validation phase (pre-implementation, iteration 1 only)
-    if [[ -n "$ORIGINAL_PLAN_FILE" && $resuming -eq 0 ]]; then
+    # Fetch GitHub issue if needed (fresh start OR resuming during tasks_validation)
+    # Only fetch if we have a GITHUB_ISSUE and don't already have the plan file
+    if [[ -n "$GITHUB_ISSUE" ]]; then
+        local plan_file="$STATE_DIR/github-issue-plan.md"
+
+        # Check if we need to fetch (plan file doesn't exist or is being resumed)
+        if [[ ! -f "$plan_file" || (-z "$ORIGINAL_PLAN_FILE" && $resuming -eq 1) ]]; then
+            log_info "Fetching plan from GitHub issue: $GITHUB_ISSUE"
+
+            local issue_content
+            if ! issue_content=$(gh issue view "$GITHUB_ISSUE" --json body,title,number 2>&1); then
+                log_error "Failed to fetch GitHub issue: $GITHUB_ISSUE"
+                log_error "$issue_content"
+                exit 1
+            fi
+
+            local issue_number issue_title issue_body
+            issue_number=$(echo "$issue_content" | jq -r '.number')
+            issue_title=$(echo "$issue_content" | jq -r '.title')
+            issue_body=$(echo "$issue_content" | jq -r '.body')
+
+            if [[ -z "$issue_body" || "$issue_body" == "null" ]]; then
+                log_error "GitHub issue has no body content: $GITHUB_ISSUE"
+                exit 1
+            fi
+
+            # Create state directory if it doesn't exist
+            mkdir -p "$STATE_DIR"
+
+            # Save to state directory with header
+            {
+                echo "# GitHub Issue #${issue_number}: ${issue_title}"
+                echo ""
+                echo "$issue_body"
+            } > "$plan_file"
+
+            log_success "Fetched plan from GitHub issue #${issue_number}: ${issue_title}"
+            ORIGINAL_PLAN_FILE="$plan_file"
+        else
+            log_info "Using existing plan file from GitHub issue: $plan_file"
+            ORIGINAL_PLAN_FILE="$plan_file"
+        fi
+    fi
+
+    # Tasks validation phase
+    # Run if: (NOT resuming) OR (resuming AND phase is tasks_validation)
+    local should_run_tasks_validation=0
+    if [[ -n "$ORIGINAL_PLAN_FILE" ]]; then
+        if [[ $resuming -eq 0 ]]; then
+            # Fresh start with plan file
+            should_run_tasks_validation=1
+        elif [[ "$CURRENT_PHASE" == "tasks_validation" ]]; then
+            # Resuming during tasks validation phase
+            should_run_tasks_validation=1
+            log_info "Resuming interrupted tasks validation phase"
+        fi
+    fi
+
+    if [[ $should_run_tasks_validation -eq 1 ]]; then
         log_info "Original plan file provided: $ORIGINAL_PLAN_FILE"
         log_info "Running tasks validation before implementation..."
 
