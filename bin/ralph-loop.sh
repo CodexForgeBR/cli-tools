@@ -28,6 +28,7 @@ EXIT_ERROR=1
 EXIT_MAX_ITERATIONS=2
 EXIT_ESCALATE=3
 EXIT_BLOCKED=4
+EXIT_TASKS_INVALID=5            # Tasks don't properly implement the plan
 
 # Default configuration
 MAX_ITERATIONS=20
@@ -58,6 +59,9 @@ CLEAN_FLAG=""
 STATUS_FLAG=""
 CANCEL_FLAG=""
 OVERRIDE_MODELS=""
+
+# Original plan validation
+ORIGINAL_PLAN_FILE=""           # Path to the original plan file (optional)
 
 # State tracking for resume
 CURRENT_PHASE=""
@@ -165,6 +169,7 @@ Options:
   --implementation-model M   Model for implementation (default: opus for claude, config default for codex)
   --validation-model M       Model for validation (default: opus for claude, config default for codex)
   --tasks-file PATH          Path to tasks.md (auto-detects if not specified)
+  --original-plan-file PATH  Path to original plan file for plan validation
   --no-cross-validate        Disable cross-validation phase (enabled by default)
   --cross-model M            Model for cross-validation AI (default: opposite AI's default)
   --resume                   Resume from last interrupted session
@@ -193,6 +198,21 @@ Cross-Validation:
 
   Disable with --no-cross-validate if only single-AI validation is desired.
 
+Original Plan Validation:
+  When --original-plan-file is provided, two additional validations run:
+
+  1. Tasks Validation (iteration 1 only, before implementation):
+     - Validates that tasks.md properly covers the original plan
+     - Uses the SAME AI as implementation (--ai flag value)
+     - Aborts immediately if tasks don't cover the plan (exit code 5)
+
+  2. Final Plan Validation (after cross-validation confirms COMPLETE):
+     - Validates the original plan was actually implemented
+     - Uses a DIFFERENT AI than implementation (like cross-validation)
+     - Does NOT reference tasks.md - only the plan and codebase
+     - If NOT_IMPLEMENTED: continues loop with feedback
+     - If CONFIRMED: marks session as truly complete
+
 Session Management:
   When a session is interrupted (Ctrl+C), state is automatically saved.
   Running the script again will detect the interrupted session and prompt you
@@ -206,6 +226,7 @@ Exit Codes:
   2 - Max iterations reached without completion
   3 - Escalation requested by validator
   4 - Tasks blocked - human intervention needed
+  5 - Tasks don't properly implement the original plan
 
 Examples:
   $(basename "$0")
@@ -338,6 +359,18 @@ parse_args() {
             --cancel)
                 CANCEL_FLAG="1"
                 shift
+                ;;
+            --original-plan-file)
+                if [[ -z "$2" ]]; then
+                    log_error "Missing value for --original-plan-file"
+                    exit 1
+                fi
+                if [[ ! -f "$2" ]]; then
+                    log_error "Original plan file not found: $2"
+                    exit 1
+                fi
+                ORIGINAL_PLAN_FILE="$2"
+                shift 2
                 ;;
             -h|--help)
                 usage
@@ -1193,6 +1226,148 @@ BEGIN YOUR INDEPENDENT VERIFICATION NOW.
 EOF
 }
 
+# Generate tasks validation prompt
+generate_tasks_validation_prompt() {
+    local plan_content
+    local tasks_content
+
+    plan_content=$(cat "$ORIGINAL_PLAN_FILE")
+    tasks_content=$(cat "$TASKS_FILE")
+
+    cat << EOF
+YOU ARE VALIDATING THAT SPEC-KIT GENERATED TASKS PROPERLY IMPLEMENT THE ORIGINAL PLAN.
+
+CONTEXT:
+The user created an original plan file using Claude Code's plan mode.
+Then they ran spec-kit (GitHub's /specify.implement command) which generated tasks.md from that plan.
+Now we need to verify that tasks.md properly covers all the requirements from the original plan.
+
+ORIGINAL PLAN FILE: $ORIGINAL_PLAN_FILE
+TASKS FILE: $TASKS_FILE
+
+ORIGINAL PLAN CONTENT:
+\`\`\`
+$plan_content
+\`\`\`
+
+GENERATED TASKS CONTENT:
+\`\`\`
+$tasks_content
+\`\`\`
+
+YOUR JOB:
+1. Read the original plan carefully and identify ALL requirements, features, and directives
+2. Read the generated tasks.md and check if it covers those requirements
+3. Look for:
+   - Missing requirements that are in the plan but not in tasks.md
+   - Contradictions between the plan and tasks.md
+   - Ignored directives or important details from the plan
+   - Incomplete task breakdown that doesn't fully implement the plan
+
+IMPORTANT RULES:
+- Do NOT reference implementation details or code (that hasn't been written yet)
+- Only compare the plan document against the tasks document
+- Be thorough but fair - tasks.md doesn't need to match the plan word-for-word
+- Focus on whether the tasks, if completed, would fully implement the plan
+
+OUTPUT FORMAT - You MUST output this exact JSON format at the end:
+\`\`\`json
+{
+  "RALPH_TASKS_VALIDATION": {
+    "verdict": "VALID|INVALID",
+    "analysis": {
+      "total_plan_requirements": <number of distinct requirements in the plan>,
+      "requirements_covered": <number properly covered in tasks.md>,
+      "missing_requirements": <number of requirements not covered>,
+      "contradictions_found": <number of contradictions>
+    },
+    "missing_items": [
+      "Specific requirement from plan that's missing in tasks.md",
+      "Another missing requirement"
+    ],
+    "contradictions": [
+      {"plan_says": "...", "tasks_say": "..."}
+    ],
+    "feedback": "If INVALID: specific explanation of what's missing or wrong. If VALID: brief confirmation."
+  }
+}
+\`\`\`
+
+VERDICT MEANINGS:
+- VALID: Tasks.md properly covers the original plan - proceed with implementation
+- INVALID: Tasks.md is missing requirements or contradicts the plan - abort immediately
+
+BEGIN YOUR VALIDATION NOW.
+EOF
+}
+
+# Generate final plan validation prompt
+generate_final_plan_validation_prompt() {
+    local plan_content
+
+    plan_content=$(cat "$ORIGINAL_PLAN_FILE")
+
+    cat << EOF
+YOU ARE VALIDATING THAT THE ORIGINAL PLAN WAS ACTUALLY IMPLEMENTED IN THE CODEBASE.
+
+CONTEXT:
+An original plan was created before spec-kit generated tasks.md.
+The implementation AI ($AI_CLI) has now completed all the tasks in tasks.md.
+The cross-validation AI ($CROSS_AI) has confirmed that tasks.md is complete.
+BUT we need to verify that the ORIGINAL PLAN was actually implemented.
+
+ORIGINAL PLAN FILE: $ORIGINAL_PLAN_FILE
+
+ORIGINAL PLAN CONTENT:
+\`\`\`
+$plan_content
+\`\`\`
+
+YOUR JOB:
+1. Read the original plan carefully
+2. Examine the codebase directly to verify each requirement was implemented
+3. Do NOT look at tasks.md - ignore it completely
+4. Verify the plan was implemented, not just the tasks
+
+CRITICAL RULE:
+- Do NOT reference or read tasks.md
+- Only compare the plan against the actual codebase
+- Use git diff, file inspection, and code analysis
+- Check if what the plan asked for is actually present in the code
+
+WHAT TO LOOK FOR:
+- Are all features from the plan actually implemented?
+- Are all directives from the plan actually followed?
+- Is the implementation consistent with the plan's intent?
+- Are there missing pieces that the plan required?
+
+OUTPUT FORMAT - You MUST output this exact JSON format at the end:
+\`\`\`json
+{
+  "RALPH_FINAL_PLAN_VALIDATION": {
+    "verdict": "CONFIRMED|NOT_IMPLEMENTED",
+    "analysis": {
+      "plan_requirements_checked": <number of requirements verified>,
+      "requirements_implemented": <number actually found in code>,
+      "requirements_missing": <number not found in code>
+    },
+    "missing_from_code": [
+      "Specific requirement from plan that's not in the codebase",
+      "Another missing implementation"
+    ],
+    "feedback": "If NOT_IMPLEMENTED: specific explanation of what's missing. If CONFIRMED: brief confirmation."
+  }
+}
+\`\`\`
+
+VERDICT MEANINGS:
+- CONFIRMED: The original plan was fully implemented in the codebase
+- NOT_IMPLEMENTED: Some requirements from the plan are missing - provide feedback and continue loop
+
+BEGIN YOUR VERIFICATION NOW. Remember: DO NOT look at tasks.md, only the plan and the code.
+EOF
+}
+
 # Extract JSON from output file (handles markdown code blocks)
 extract_json_from_file() {
     local file_path=$1
@@ -1974,6 +2149,132 @@ run_cross_validation() {
     echo "$output_file"
 }
 
+# Run tasks validation (pre-implementation, iteration 1 only)
+run_tasks_validation() {
+    local output_file="$STATE_DIR/tasks-validation-output.txt"
+
+    # All logs go to stderr
+    log_phase "TASKS VALIDATION PHASE" >&2
+    log_info "Validating that tasks.md properly implements the original plan" >&2
+    log_info "Using implementation AI: $AI_CLI" >&2
+    log_info "Model: $IMPL_MODEL" >&2
+
+    local prompt
+    prompt=$(generate_tasks_validation_prompt)
+
+    set +e  # Temporarily disable exit on error
+    if [[ "$AI_CLI" == "codex" ]]; then
+        local -a codex_args=(
+            --dangerously-bypass-approvals-and-sandbox
+        )
+
+        if [[ -n "$IMPL_MODEL" && "$IMPL_MODEL" != "default" ]]; then
+            codex_args+=(-m "$IMPL_MODEL")
+        fi
+
+        codex_args+=("$prompt")
+
+        log_info "Running tasks validation with codex..." >&2
+        if run_codex_with_timeout "$output_file" 600 1 5 "${codex_args[@]}"; then
+            log_success "Tasks validation phase completed" >&2
+        else
+            log_error "Tasks validation phase failed - see output file for details" >&2
+        fi
+    else
+        local -a claude_args=(
+            --dangerously-skip-permissions
+            --model "$IMPL_MODEL"
+            --print
+            --max-turns "$MAX_TURNS"
+        )
+
+        if [[ -n "$VERBOSE" ]]; then
+            claude_args+=("$VERBOSE")
+        fi
+
+        claude_args+=("$prompt")
+
+        log_info "Running tasks validation with claude..." >&2
+        if run_claude_with_timeout "$output_file" 600 1 5 "${claude_args[@]}"; then
+            log_success "Tasks validation phase completed" >&2
+        else
+            log_error "Tasks validation phase failed - see output file for details" >&2
+        fi
+    fi
+    set -e  # Re-enable exit on error
+
+    # Display output
+    cat "$output_file" >&2
+
+    log_summary "Tasks validation phase completed"
+
+    echo "$output_file"
+}
+
+# Run final plan validation (after cross-validation confirms)
+run_final_plan_validation() {
+    local iteration=$1
+    local output_file="$STATE_DIR/final-plan-validation-output-${iteration}.txt"
+
+    # All logs go to stderr
+    log_phase "FINAL PLAN VALIDATION PHASE - Iteration $iteration" >&2
+    log_info "Validating that the original plan was actually implemented" >&2
+    log_info "Using cross-validation AI: $CROSS_AI" >&2
+    log_info "Model: $CROSS_MODEL" >&2
+
+    local prompt
+    prompt=$(generate_final_plan_validation_prompt)
+
+    set +e  # Temporarily disable exit on error
+    if [[ "$CROSS_AI" == "codex" ]]; then
+        local -a codex_args=(
+            --dangerously-bypass-approvals-and-sandbox
+        )
+
+        if [[ -n "$CROSS_MODEL" && "$CROSS_MODEL" != "default" ]]; then
+            codex_args+=(-m "$CROSS_MODEL")
+        fi
+
+        codex_args+=("$prompt")
+
+        log_info "Running final plan validation with codex..." >&2
+        if run_codex_with_timeout "$output_file" 1800 1 5 "${codex_args[@]}"; then
+            log_success "Final plan validation phase completed" >&2
+        else
+            log_error "Final plan validation phase failed - see output file for details" >&2
+        fi
+    else
+        local -a claude_args=(
+            --dangerously-skip-permissions
+            --model "$CROSS_MODEL"
+            --print
+            --max-turns "$MAX_TURNS"
+        )
+
+        if [[ -n "$VERBOSE" ]]; then
+            claude_args+=("$VERBOSE")
+        fi
+
+        claude_args+=("$prompt")
+
+        log_info "Running final plan validation with claude..." >&2
+        if run_claude_with_timeout "$output_file" 1800 1 5 "${claude_args[@]}"; then
+            log_success "Final plan validation phase completed" >&2
+        else
+            log_error "Final plan validation phase failed - see output file for details" >&2
+        fi
+    fi
+    set -e  # Re-enable exit on error
+
+    # Display output
+    cat "$output_file" >&2
+
+    save_iteration_state "$iteration" "final_plan_validation" "$output_file"
+    log_summary "Iteration $iteration: Final plan validation phase completed"
+
+    echo "$output_file"
+}
+
 # Main loop
 main() {
     parse_args "$@"
@@ -2200,6 +2501,80 @@ PYTHON_EOF
     log_info "Implementation model: $IMPL_MODEL"
     log_info "Validation model: $VAL_MODEL"
 
+    # Tasks validation phase (pre-implementation, iteration 1 only)
+    if [[ -n "$ORIGINAL_PLAN_FILE" && $resuming -eq 0 ]]; then
+        log_info "Original plan file provided: $ORIGINAL_PLAN_FILE"
+        log_info "Running tasks validation before implementation..."
+
+        CURRENT_PHASE="tasks_validation"
+        save_state "running" 0
+
+        # Run tasks validation
+        local tasks_val_file
+        tasks_val_file=$(run_tasks_validation)
+
+        # Extract and parse RALPH_TASKS_VALIDATION JSON
+        local tasks_val_json
+        tasks_val_json=$(extract_json_from_file "$tasks_val_file" "RALPH_TASKS_VALIDATION") || true
+
+        if [[ -z "$tasks_val_json" ]]; then
+            log_error "Could not parse tasks validation JSON"
+            log_error "See output file for details: $tasks_val_file"
+            exit $EXIT_ERROR
+        fi
+
+        # Parse verdict
+        local tasks_verdict
+        tasks_verdict=$(echo "$tasks_val_json" | python3 -c "
+import sys
+import json
+
+try:
+    data = json.load(sys.stdin)
+    tasks_val = data.get('RALPH_TASKS_VALIDATION', {})
+    print(tasks_val.get('verdict', 'UNKNOWN'))
+except:
+    print('PARSE_ERROR')
+" 2>/dev/null || echo "PARSE_ERROR")
+
+        log_info "Tasks validation verdict: $tasks_verdict"
+
+        if [[ "$tasks_verdict" == "INVALID" ]]; then
+            # Extract feedback
+            local tasks_feedback
+            tasks_feedback=$(echo "$tasks_val_json" | python3 -c "
+import sys
+import json
+
+try:
+    data = json.load(sys.stdin)
+    tasks_val = data.get('RALPH_TASKS_VALIDATION', {})
+    print(tasks_val.get('feedback', 'Tasks validation failed'))
+except Exception as e:
+    print(f'Error parsing feedback: {e}')
+" 2>/dev/null || echo "Tasks validation failed")
+
+            log_error "Tasks validation INVALID: tasks.md does not properly implement the original plan"
+            echo -e "\n${RED}╔═══════════════════════════════════════════════════════════════╗${NC}"
+            echo -e "${RED}║                  TASKS VALIDATION FAILED                      ║${NC}"
+            echo -e "${RED}║         tasks.md doesn't implement the original plan          ║${NC}"
+            echo -e "${RED}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+            echo -e "${YELLOW}Feedback:${NC}"
+            echo "$tasks_feedback"
+            echo ""
+            echo -e "${CYAN}Next steps:${NC}"
+            echo "1. Review the feedback above"
+            echo "2. Update tasks.md to properly cover the plan requirements"
+            echo "3. Or regenerate tasks.md with spec-kit using the updated plan"
+            echo ""
+
+            save_state "TASKS_INVALID" 0 "INVALID"
+            exit $EXIT_TASKS_INVALID
+        fi
+
+        log_success "Tasks validation VALID: tasks.md properly implements the original plan"
+    fi
+
     while [[ $iteration -lt $MAX_ITERATIONS ]]; do
         # Declare output file variables at loop scope
         local impl_output_file=""
@@ -2252,6 +2627,68 @@ except:
 " 2>/dev/null || echo "PARSE_ERROR")
 
                         if [[ "$cross_verdict" == "CONFIRMED" ]]; then
+                            # Check if final plan validation is needed
+                            if [[ -n "$ORIGINAL_PLAN_FILE" ]]; then
+                                log_info "Running final plan validation..."
+
+                                CURRENT_PHASE="final_plan_validation"
+                                save_state "running" "$iteration"
+
+                                # Run final plan validation
+                                local final_plan_val_file
+                                final_plan_val_file=$(run_final_plan_validation "$iteration")
+
+                                # Extract and parse RALPH_FINAL_PLAN_VALIDATION JSON
+                                local final_plan_json
+                                final_plan_json=$(extract_json_from_file "$final_plan_val_file" "RALPH_FINAL_PLAN_VALIDATION") || true
+
+                                if [[ -n "$final_plan_json" ]]; then
+                                    local final_plan_verdict
+                                    final_plan_verdict=$(echo "$final_plan_json" | python3 -c "
+import sys
+import json
+
+try:
+    data = json.load(sys.stdin)
+    final_plan_val = data.get('RALPH_FINAL_PLAN_VALIDATION', {})
+    print(final_plan_val.get('verdict', 'UNKNOWN'))
+except:
+    print('PARSE_ERROR')
+" 2>/dev/null || echo "PARSE_ERROR")
+
+                                    log_info "Final plan validation verdict: $final_plan_verdict"
+
+                                    if [[ "$final_plan_verdict" == "NOT_IMPLEMENTED" ]]; then
+                                        # Extract feedback and continue loop
+                                        local final_plan_feedback
+                                        final_plan_feedback=$(echo "$final_plan_json" | python3 -c "
+import sys
+import json
+
+try:
+    data = json.load(sys.stdin)
+    final_plan_val = data.get('RALPH_FINAL_PLAN_VALIDATION', {})
+    print(final_plan_val.get('feedback', 'Final plan validation found missing requirements'))
+except Exception as e:
+    print(f'Error parsing feedback: {e}')
+" 2>/dev/null || echo "Final plan validation found issues")
+
+                                        log_warn "Final plan validation NOT_IMPLEMENTED - continuing loop"
+                                        feedback="Final plan validation found missing requirements: $final_plan_feedback"
+                                        LAST_FEEDBACK="$feedback"
+                                        log_info "Feedback: $feedback"
+                                        # Continue to next iteration
+                                        continue
+                                    fi
+
+                                    # CONFIRMED - fall through to success
+                                    log_success "Final plan validation CONFIRMED - original plan fully implemented"
+                                else
+                                    log_warn "Could not parse final plan validation JSON, assuming confirmed"
+                                fi
+                            fi
+
+                            # SUCCESS - all validations passed
                             local iter_elapsed=$(($(get_timestamp) - ITERATION_START_TIME))
                             local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
 
@@ -2473,6 +2910,68 @@ except:
                         log_info "Cross-validation verdict: $cross_verdict"
 
                         if [[ "$cross_verdict" == "CONFIRMED" ]]; then
+                            # Check if final plan validation is needed
+                            if [[ -n "$ORIGINAL_PLAN_FILE" ]]; then
+                                log_info "Running final plan validation..."
+
+                                CURRENT_PHASE="final_plan_validation"
+                                save_state "running" "$iteration"
+
+                                # Run final plan validation
+                                local final_plan_val_file
+                                final_plan_val_file=$(run_final_plan_validation "$iteration")
+
+                                # Extract and parse RALPH_FINAL_PLAN_VALIDATION JSON
+                                local final_plan_json
+                                final_plan_json=$(extract_json_from_file "$final_plan_val_file" "RALPH_FINAL_PLAN_VALIDATION") || true
+
+                                if [[ -n "$final_plan_json" ]]; then
+                                    local final_plan_verdict
+                                    final_plan_verdict=$(echo "$final_plan_json" | python3 -c "
+import sys
+import json
+
+try:
+    data = json.load(sys.stdin)
+    final_plan_val = data.get('RALPH_FINAL_PLAN_VALIDATION', {})
+    print(final_plan_val.get('verdict', 'UNKNOWN'))
+except:
+    print('PARSE_ERROR')
+" 2>/dev/null || echo "PARSE_ERROR")
+
+                                    log_info "Final plan validation verdict: $final_plan_verdict"
+
+                                    if [[ "$final_plan_verdict" == "NOT_IMPLEMENTED" ]]; then
+                                        # Extract feedback and continue loop
+                                        local final_plan_feedback
+                                        final_plan_feedback=$(echo "$final_plan_json" | python3 -c "
+import sys
+import json
+
+try:
+    data = json.load(sys.stdin)
+    final_plan_val = data.get('RALPH_FINAL_PLAN_VALIDATION', {})
+    print(final_plan_val.get('feedback', 'Final plan validation found missing requirements'))
+except Exception as e:
+    print(f'Error parsing feedback: {e}')
+" 2>/dev/null || echo "Final plan validation found issues")
+
+                                        log_warn "Final plan validation NOT_IMPLEMENTED - continuing loop"
+                                        feedback="Final plan validation found missing requirements: $final_plan_feedback"
+                                        LAST_FEEDBACK="$feedback"
+                                        log_info "Feedback: $feedback"
+                                        # Continue loop (don't exit)
+                                        continue
+                                    fi
+
+                                    # CONFIRMED - fall through to success
+                                    log_success "Final plan validation CONFIRMED - original plan fully implemented"
+                                else
+                                    log_warn "Could not parse final plan validation JSON, assuming confirmed"
+                                fi
+                            fi
+
+                            # SUCCESS - all validations passed
                             local iter_elapsed=$(($(get_timestamp) - ITERATION_START_TIME))
                             local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
 
