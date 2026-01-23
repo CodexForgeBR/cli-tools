@@ -64,6 +64,10 @@ OVERRIDE_MODELS=""
 ORIGINAL_PLAN_FILE=""           # Path to the original plan file (optional)
 GITHUB_ISSUE=""                 # GitHub issue URL or number (optional)
 
+# Learnings configuration
+LEARNINGS_FILE=""           # Path to learnings file (default: .ralph-loop/learnings.md)
+ENABLE_LEARNINGS=1          # ON by default
+
 # State tracking for resume
 CURRENT_PHASE=""
 LAST_FEEDBACK=""
@@ -173,6 +177,8 @@ Options:
   --original-plan-file PATH  Path to original plan file for plan validation
   --github-issue <URL|NUM>   GitHub issue URL or number to use as original plan
                              (mutually exclusive with --original-plan-file)
+  --learnings-file PATH      Path to learnings file (default: .ralph-loop/learnings.md)
+  --no-learnings             Disable learnings persistence (enabled by default)
   --no-cross-validate        Disable cross-validation phase (enabled by default)
   --cross-model M            Model for cross-validation AI (default: opposite AI's default)
   --resume                   Resume from last interrupted session
@@ -382,6 +388,18 @@ parse_args() {
                 fi
                 GITHUB_ISSUE="$2"
                 shift 2
+                ;;
+            --learnings-file)
+                if [[ -z "$2" ]]; then
+                    log_error "Missing value for --learnings-file"
+                    exit 1
+                fi
+                LEARNINGS_FILE="$2"
+                shift 2
+                ;;
+            --no-learnings)
+                ENABLE_LEARNINGS=0
+                shift
                 ;;
             -h|--help)
                 usage
@@ -615,6 +633,11 @@ try:
     # Restore plan validation settings
     print(f"STORED_ORIGINAL_PLAN_FILE='{state.get('original_plan_file', '')}'")
     print(f"STORED_GITHUB_ISSUE='{state.get('github_issue', '')}'")
+
+    # Restore learnings settings (defaults for backward compatibility)
+    learnings = state.get('learnings', {})
+    print(f"STORED_LEARNINGS_ENABLED={learnings.get('enabled', 1)}")
+    print(f"STORED_LEARNINGS_FILE='{learnings.get('file', '')}'")
 
     # Retry state for resume (defaults for backward compatibility)
     retry_state = state.get('retry_state', {})
@@ -865,6 +888,86 @@ init_state_dir() {
     log_info "Session ID: $SESSION_ID"
 }
 
+# Initialize learnings file
+init_learnings_file() {
+    if [[ "$ENABLE_LEARNINGS" -eq 0 ]]; then
+        return
+    fi
+
+    # Default to state directory
+    if [[ -z "$LEARNINGS_FILE" ]]; then
+        LEARNINGS_FILE="$STATE_DIR/learnings.md"
+    fi
+
+    # Create if doesn't exist
+    if [[ ! -f "$LEARNINGS_FILE" ]]; then
+        cat > "$LEARNINGS_FILE" << 'EOF'
+# Ralph Loop Learnings
+
+## Codebase Patterns
+<!-- Add reusable patterns discovered during implementation -->
+
+---
+
+## Iteration Log
+EOF
+        log_info "Created learnings file: $LEARNINGS_FILE"
+    fi
+}
+
+# Get learnings content
+get_learnings_content() {
+    if [[ "$ENABLE_LEARNINGS" -eq 1 && -f "$LEARNINGS_FILE" ]]; then
+        cat "$LEARNINGS_FILE"
+    fi
+}
+
+# Append learnings from an iteration
+append_learnings() {
+    local iteration=$1
+    local learnings=$2
+
+    if [[ "$ENABLE_LEARNINGS" -eq 0 || -z "$learnings" ]]; then
+        return
+    fi
+
+    cat >> "$LEARNINGS_FILE" << EOF
+
+### Iteration $iteration - $(date '+%Y-%m-%d %H:%M')
+$learnings
+---
+EOF
+    log_info "Appended learnings from iteration $iteration"
+}
+
+# Extract learnings from implementation output
+extract_learnings() {
+    local output_file=$1
+
+    # Extract content between RALPH_LEARNINGS markers
+    python3 - "$output_file" << 'PYTHON_EOF'
+import sys
+import re
+
+try:
+    with open(sys.argv[1], 'r') as f:
+        content = f.read()
+
+    # Look for RALPH_LEARNINGS block
+    pattern = r'RALPH_LEARNINGS:\s*(.*?)(?:\n```|$)'
+    match = re.search(pattern, content, re.DOTALL)
+
+    if match:
+        learnings = match.group(1).strip()
+        # Only output if there's actual content
+        if learnings and learnings != '-':
+            print(learnings)
+
+except Exception as e:
+    pass  # Silently fail - learnings are optional
+PYTHON_EOF
+}
+
 # Save iteration state
 save_iteration_state() {
     local iteration=$1
@@ -929,6 +1032,10 @@ save_state() {
     "max_iterations": $MAX_ITERATIONS,
     "original_plan_file": "$ORIGINAL_PLAN_FILE",
     "github_issue": "$GITHUB_ISSUE",
+    "learnings": {
+        "enabled": $ENABLE_LEARNINGS,
+        "file": "$LEARNINGS_FILE"
+    },
     "cross_validation": {
         "enabled": $CROSS_VALIDATE,
         "ai": "$CROSS_AI",
@@ -958,6 +1065,12 @@ log_summary() {
 generate_impl_prompt() {
     local iteration=$1
     local feedback=$2
+    local learnings=""
+
+    # Get existing learnings
+    if [[ "$ENABLE_LEARNINGS" -eq 1 && -f "$LEARNINGS_FILE" ]]; then
+        learnings=$(cat "$LEARNINGS_FILE")
+    fi
 
     local prompt
     if [[ $iteration -eq 1 ]]; then
@@ -1030,6 +1143,38 @@ When done, output:
 
 FIX YOUR MISTAKES NOW."
     fi
+
+    # Add learnings section to prompt
+    if [[ -n "$learnings" ]]; then
+        prompt+="
+
+═══════════════════════════════════════════════════════════════════════════════
+LEARNINGS FROM PREVIOUS ITERATIONS:
+Read these FIRST before starting work. They contain important patterns and gotchas.
+═══════════════════════════════════════════════════════════════════════════════
+
+$learnings
+
+Pay special attention to the 'Codebase Patterns' section at the top."
+    fi
+
+    # Add learnings output instruction
+    prompt+="
+
+═══════════════════════════════════════════════════════════════════════════════
+LEARNINGS OUTPUT:
+═══════════════════════════════════════════════════════════════════════════════
+
+At the end of your work, output any NEW learnings in this format:
+\`\`\`
+RALPH_LEARNINGS:
+- Pattern: [describe any reusable pattern you discovered]
+- Gotcha: [describe any gotcha or non-obvious requirement]
+- Context: [describe any useful context for future iterations]
+\`\`\`
+
+Only include GENERAL learnings that would help future iterations.
+Do NOT include task-specific details."
 
     echo "$prompt"
 }
@@ -2403,6 +2548,15 @@ PYTHON_EOF
                 log_info "Restored GitHub issue from state: $GITHUB_ISSUE"
             fi
 
+            # Restore learnings settings from saved state
+            if [[ -n "$STORED_LEARNINGS_ENABLED" ]]; then
+                ENABLE_LEARNINGS="$STORED_LEARNINGS_ENABLED"
+            fi
+            if [[ -n "$STORED_LEARNINGS_FILE" ]]; then
+                LEARNINGS_FILE="$STORED_LEARNINGS_FILE"
+                log_info "Restored learnings file from state: $LEARNINGS_FILE"
+            fi
+
             # Restore AI CLI from saved state unless overridden
             local use_stored_models=1
             if [[ -z "$OVERRIDE_AI" && -n "$STORED_AI_CLI" ]]; then
@@ -2513,6 +2667,7 @@ PYTHON_EOF
     # Initialize state if not resuming
     if [[ $resuming -eq 0 ]]; then
         init_state_dir
+        init_learnings_file
         log_summary "Started Ralph Loop with $initial_unchecked unchecked tasks"
         log_summary "AI CLI: $AI_CLI"
         log_summary "Implementation model: $IMPL_MODEL, Validation model: $VAL_MODEL"
@@ -2523,6 +2678,9 @@ PYTHON_EOF
         # Resuming - use existing state
         log_summary "Resumed Ralph Loop at iteration $iteration"
         last_unchecked=${LAST_CHECKED_COUNT:-$initial_unchecked}
+
+        # Initialize learnings file if needed (for resumed sessions)
+        init_learnings_file
 
         # Convert started_at from ISO format to timestamp if needed
         if [[ "$SCRIPT_START_TIME" =~ ^[0-9]{4}- ]]; then
@@ -2884,6 +3042,15 @@ except Exception as e:
                 feedback="Implementation failed in previous iteration. Please try again with a fresh approach."
                 LAST_FEEDBACK="$feedback"
                 continue
+            fi
+
+            # Extract and append learnings from implementation
+            if [[ "$ENABLE_LEARNINGS" -eq 1 && -f "$impl_output_file" ]]; then
+                local new_learnings
+                new_learnings=$(extract_learnings "$impl_output_file")
+                if [[ -n "$new_learnings" ]]; then
+                    append_learnings "$iteration" "$new_learnings"
+                fi
             fi
 
             # Save state before validation
