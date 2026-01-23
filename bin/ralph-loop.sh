@@ -1106,6 +1106,19 @@ WORKFLOW:
 3. Mark it [x] ONLY if you did the EXACT action specified
 4. Move to next task
 
+EVIDENCE CAPTURE FOR NON-FILE TASKS:
+For tasks that don't just create/modify files, capture evidence in RALPH_STATUS.notes:
+
+| Task Type | What to Record |
+|-----------|----------------|
+| Deploy X | Version deployed (e.g., \"BCL 2026.1.23.4-servidor deployed\") |
+| Run tests | Results (e.g., \"4238 passed, 3 skipped, 0 failed\") |
+| Build X | Result (e.g., \"Build succeeded: 0 errors, 0 warnings\") |
+| Verify X | What you verified (e.g., \"Packages exist on BaGet: curl confirmed\") |
+| Run/Execute X | Outcome (e.g., \"Quickstart scenarios: all error messages match\") |
+
+This evidence helps validation verify your work without re-running everything.
+
 When done, output:
 \`\`\`json
 {
@@ -1132,6 +1145,19 @@ REMEMBER:
 - YOU CANNOT REWRITE TASKS
 - IF TASK SAYS REMOVE → REMOVE IT
 - NO EXCUSES. NO OPINIONS. JUST DO IT.
+
+EVIDENCE CAPTURE FOR NON-FILE TASKS:
+For tasks that don't just create/modify files, capture evidence in RALPH_STATUS.notes:
+
+| Task Type | What to Record |
+|-----------|----------------|
+| Deploy X | Version deployed (e.g., \"BCL 2026.1.23.4-servidor deployed\") |
+| Run tests | Results (e.g., \"4238 passed, 3 skipped, 0 failed\") |
+| Build X | Result (e.g., \"Build succeeded: 0 errors, 0 warnings\") |
+| Verify X | What you verified (e.g., \"Packages exist on BaGet: curl confirmed\") |
+| Run/Execute X | Outcome (e.g., \"Quickstart scenarios: all error messages match\") |
+
+This evidence helps validation verify your work without re-running everything.
 
 When done, output:
 \`\`\`json
@@ -1363,6 +1389,35 @@ WHAT TO LOOK FOR:
 - Missing files that should exist
 - Files that should be deleted but still exist
 - Tests that don't actually test production code
+
+═══════════════════════════════════════════════════════════════════════════════
+VERIFICATION STANDARDS BY TASK TYPE
+═══════════════════════════════════════════════════════════════════════════════
+
+IMPORTANT: Verify CURRENT STATE, not historical log files.
+
+| Task Type | How to Verify |
+|-----------|---------------|
+| CREATE/MODIFY file | File exists with correct content |
+| DELETE/REMOVE | File doesn't exist or code removed per git diff |
+| Deploy to server | Artifact exists on target server NOW (curl API) |
+| Run tests | Tests PASS when you run them NOW |
+| Build | Build SUCCEEDS when you run it NOW |
+| Run/Execute X | Outcome is correct in current state |
+| Verify X | X is true in current state |
+
+Do NOT require log files (deploy.log, test-results.txt, etc.) unless the task
+explicitly says \"capture output\" or \"log results\".
+
+EXAMPLE - CORRECT VERIFICATION:
+- Task: \"Deploy BCL packages to servidor\"
+- Verification: curl servidor BaGet API → packages exist? → CONFIRMED
+- WRONG: Looking for deploy-output.log file
+
+EXAMPLE - CORRECT VERIFICATION:
+- Task: \"Run quickstart.md validation scenarios\"
+- Verification: Generated validators have expected error messages? → CONFIRMED
+- WRONG: Looking for quickstart-execution.log file
 
 THE PREVIOUS VALIDATION VERDICT:
 The validator ($AI_CLI) claimed all tasks are COMPLETE.
