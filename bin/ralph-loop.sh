@@ -88,6 +88,14 @@ CROSS_VALIDATE=1              # ON by default
 CROSS_MODEL=""                # Model for cross-validation AI
 CROSS_AI=""                   # Auto-set: opposite of AI_CLI
 CROSS_AI_AVAILABLE=0          # Whether alternate AI CLI is installed
+OVERRIDE_CROSS_AI=""          # Override automatic opposite AI calculation
+
+# Final plan validation configuration
+FINAL_PLAN_AI=""              # AI for final plan validation (defaults to CROSS_AI)
+FINAL_PLAN_MODEL=""           # Model for final plan validation (defaults to CROSS_MODEL)
+FINAL_PLAN_AI_AVAILABLE=0    # Whether final plan AI is installed
+OVERRIDE_FINAL_PLAN_AI=""    # Override final plan AI
+OVERRIDE_FINAL_PLAN_MODEL="" # Override final plan model
 
 # Retry state tracking for resume
 CURRENT_RETRY_ATTEMPT=1
@@ -189,6 +197,9 @@ Options:
   --no-learnings             Disable learnings persistence (enabled by default)
   --no-cross-validate        Disable cross-validation phase (enabled by default)
   --cross-model M            Model for cross-validation AI (default: opposite AI's default)
+  --cross-validation-ai AI   Override cross-validation AI (default: opposite of --ai)
+  --final-plan-validation-ai AI      AI for final plan validation (default: same as cross-validation)
+  --final-plan-validation-model M    Model for final plan validation (default: same as cross-validation)
   --resume                   Resume from last interrupted session
   --resume-force             Resume even if tasks.md has changed
   --clean                    Start fresh, delete existing .ralph-loop state
@@ -366,6 +377,49 @@ parse_args() {
                 CROSS_MODEL="$2"
                 shift 2
                 ;;
+            --cross-validation-ai)
+                if [[ -z "$2" ]]; then
+                    log_error "Missing value for --cross-validation-ai"
+                    exit 1
+                fi
+                case "$2" in
+                    claude|codex)
+                        CROSS_AI="$2"
+                        OVERRIDE_CROSS_AI="1"
+                        ;;
+                    *)
+                        log_error "Invalid value for --cross-validation-ai: $2 (expected: claude or codex)"
+                        exit 1
+                        ;;
+                esac
+                shift 2
+                ;;
+            --final-plan-validation-ai)
+                if [[ -z "$2" ]]; then
+                    log_error "Missing value for --final-plan-validation-ai"
+                    exit 1
+                fi
+                case "$2" in
+                    claude|codex)
+                        FINAL_PLAN_AI="$2"
+                        OVERRIDE_FINAL_PLAN_AI="1"
+                        ;;
+                    *)
+                        log_error "Invalid value for --final-plan-validation-ai: $2 (expected: claude or codex)"
+                        exit 1
+                        ;;
+                esac
+                shift 2
+                ;;
+            --final-plan-validation-model)
+                if [[ -z "$2" ]]; then
+                    log_error "Missing value for --final-plan-validation-model"
+                    exit 1
+                fi
+                FINAL_PLAN_MODEL="$2"
+                OVERRIDE_FINAL_PLAN_MODEL="1"
+                shift 2
+                ;;
             --resume)
                 RESUME_FLAG="1"
                 shift
@@ -457,22 +511,71 @@ set_cross_validation_ai() {
         return
     fi
 
-    # Determine opposite AI
-    if [[ "$AI_CLI" == "claude" ]]; then
-        CROSS_AI="codex"
-        [[ -z "$CROSS_MODEL" ]] && CROSS_MODEL="default"
+    # Determine cross-validation AI (unless overridden)
+    if [[ -z "$OVERRIDE_CROSS_AI" ]]; then
+        # Auto-detect: use opposite AI
+        if [[ "$AI_CLI" == "claude" ]]; then
+            CROSS_AI="codex"
+            [[ -z "$CROSS_MODEL" ]] && CROSS_MODEL="default"
+        else
+            CROSS_AI="claude"
+            [[ -z "$CROSS_MODEL" ]] && CROSS_MODEL="opus"
+        fi
     else
-        CROSS_AI="claude"
-        [[ -z "$CROSS_MODEL" ]] && CROSS_MODEL="opus"
+        # User explicitly set CROSS_AI via --cross-validation-ai
+        # Set default model if not specified
+        if [[ -z "$CROSS_MODEL" ]]; then
+            if [[ "$CROSS_AI" == "claude" ]]; then
+                CROSS_MODEL="opus"
+            else
+                CROSS_MODEL="default"
+            fi
+        fi
     fi
 
-    # Check if alternate AI is installed
+    # Check if cross-validation AI is installed
     if command -v "$CROSS_AI" &>/dev/null; then
         CROSS_AI_AVAILABLE=1
         log_info "Cross-validation enabled: will use $CROSS_AI ($CROSS_MODEL)"
     else
         CROSS_AI_AVAILABLE=0
         log_warn "Cross-validation: $CROSS_AI not found, will skip phase 3"
+    fi
+}
+
+# Set up final plan validation AI (defaults to cross-validation AI)
+set_final_plan_validation_ai() {
+    # Only relevant if we have an original plan file or GitHub issue
+    if [[ -z "$ORIGINAL_PLAN_FILE" ]]; then
+        return
+    fi
+
+    # Determine final plan validation AI (unless overridden)
+    if [[ -z "$OVERRIDE_FINAL_PLAN_AI" ]]; then
+        # Default: use same AI as cross-validation
+        FINAL_PLAN_AI="$CROSS_AI"
+        if [[ -z "$OVERRIDE_FINAL_PLAN_MODEL" ]]; then
+            FINAL_PLAN_MODEL="$CROSS_MODEL"
+        fi
+    else
+        # User explicitly set FINAL_PLAN_AI via --final-plan-validation-ai
+        # Set default model if not specified
+        if [[ -z "$OVERRIDE_FINAL_PLAN_MODEL" && -z "$FINAL_PLAN_MODEL" ]]; then
+            if [[ "$FINAL_PLAN_AI" == "claude" ]]; then
+                FINAL_PLAN_MODEL="opus"
+            else
+                FINAL_PLAN_MODEL="default"
+            fi
+        fi
+    fi
+
+    # Check if final plan validation AI is installed
+    if command -v "$FINAL_PLAN_AI" &>/dev/null; then
+        FINAL_PLAN_AI_AVAILABLE=1
+        log_info "Final plan validation enabled: will use $FINAL_PLAN_AI ($FINAL_PLAN_MODEL)"
+    else
+        FINAL_PLAN_AI_AVAILABLE=0
+        log_warn "Final plan validation: $FINAL_PLAN_AI not found"
     fi
 }
 
@@ -1065,6 +1168,11 @@ save_state() {
         "ai": "$CROSS_AI",
         "model": "$CROSS_MODEL",
         "available": $cross_ai_avail
+    },
+    "final_plan_validation": {
+        "ai": "$FINAL_PLAN_AI",
+        "model": "$FINAL_PLAN_MODEL",
+        "available": $([[ "$FINAL_PLAN_AI_AVAILABLE" -eq 1 ]] && echo "true" || echo "false")
     },
     "circuit_breaker": {
         "no_progress_count": $NO_PROGRESS_COUNT,
@@ -2579,20 +2687,20 @@ run_final_plan_validation() {
     # All logs go to stderr
     log_phase "FINAL PLAN VALIDATION PHASE - Iteration $iteration" >&2
     log_info "Validating that the original plan was actually implemented" >&2
-    log_info "Using cross-validation AI: $CROSS_AI" >&2
-    log_info "Model: $CROSS_MODEL" >&2
+    log_info "Using final plan validation AI: $FINAL_PLAN_AI" >&2
+    log_info "Model: $FINAL_PLAN_MODEL" >&2
 
     local prompt
     prompt=$(generate_final_plan_validation_prompt)
 
     set +e  # Temporarily disable exit on error
-    if [[ "$CROSS_AI" == "codex" ]]; then
+    if [[ "$FINAL_PLAN_AI" == "codex" ]]; then
         local -a codex_args=(
             --dangerously-bypass-approvals-and-sandbox
         )
 
-        if [[ -n "$CROSS_MODEL" && "$CROSS_MODEL" != "default" ]]; then
-            codex_args+=(-m "$CROSS_MODEL")
+        if [[ -n "$FINAL_PLAN_MODEL" && "$FINAL_PLAN_MODEL" != "default" ]]; then
+            codex_args+=(-m "$FINAL_PLAN_MODEL")
         fi
 
         codex_args+=("$prompt")
@@ -2606,7 +2714,7 @@ run_final_plan_validation() {
     else
         local -a claude_args=(
             --dangerously-skip-permissions
-            --model "$CROSS_MODEL"
+            --model "$FINAL_PLAN_MODEL"
             --print
             --max-turns "$MAX_TURNS"
         )
@@ -2641,6 +2749,7 @@ main() {
 
     set_default_models_for_ai
     set_cross_validation_ai
+    set_final_plan_validation_ai
 
     # Validate mutually exclusive flags
     if [[ -n "$ORIGINAL_PLAN_FILE" && -n "$GITHUB_ISSUE" ]]; then
