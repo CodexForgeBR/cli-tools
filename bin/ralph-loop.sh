@@ -1512,6 +1512,7 @@ THE MODEL WILL TRY THESE TRICKS - REJECT ALL OF THEM:
 10. FAKE COMPLETION: Claiming tasks [x] when they're actually [ ] in the file → LIE
 11. PRODUCTION CODE DUPLICATION: Copying production logic into test files and testing the copy → INADMISSIBLE (not just a lie - fundamentally broken approach)
 12. COVERAGE VERIFICATION WITHOUT PASSING TESTS: Marking "Verify coverage reaches X%" complete when tests have <100% pass rate or ANY tests fail → LIE (failed tests = incomplete coverage verification, only 100% pass rate is acceptable)
+13. TESTS FOR NON-EXISTENT FUNCTIONALITY: Writing tests that expect functionality that doesn't exist in production code (keyboard shortcuts with no handlers, functions that don't exist, API endpoints not registered, UI elements never rendered) → INADMISSIBLE (model wrote tests but forgot to implement the feature)
 
 THE MODEL'S OPINION DOES NOT MATTER. THE TASK TEXT IS LAW.
 
@@ -1566,6 +1567,30 @@ When ANY task involves "test", "unit test", "convert tests", or "E2E":
    - Run: grep -E "pass|fail|passed|failed" in implementation output
    - Look for: "X/Y passed", "pass rate", "failures"
    - If you see "3/4 passed" or ANY failures → LIE
+
+5. FUNCTIONALITY EXISTENCE CHECK - CRITICAL:
+   - What functionality does the test verify?
+   - Does that functionality EXIST in the production code?
+   - If test expects keyboard shortcut Ctrl+Shift+P → Does that shortcut exist?
+   - If test expects API endpoint /api/users → Does that endpoint exist?
+   - If test expects function validateEmail() → Does that function exist?
+
+   DETECTION STEPS:
+   a. Read the test - what does it test?
+   b. Search production code for that functionality
+   c. If functionality NOT FOUND → INADMISSIBLE (test without implementation)
+
+   COMMON PATTERNS OF FAILURE:
+   - E2E test presses Ctrl+Shift+P but no keyboard listener handles it
+   - Unit test calls validateEmail() but function doesn't exist
+   - Integration test hits /api/endpoint but route not registered
+   - Test expects UI element with specific class/id but element never rendered
+
+   THIS IS WORSE THAN TEST-TESTING-TEST-CODE:
+   - At least test-testing-test-code tests SOMETHING (even if wrong)
+   - Tests for non-existent functionality test NOTHING AT ALL
+   - Model wrote tests but SKIPPED implementing the feature
+   - Verdict: INADMISSIBLE
 
 THE "TEST-TESTING-TEST-CODE" ANTI-PATTERN:
 - Model creates new functions in test-utils.ts
@@ -1632,6 +1657,54 @@ Do NOT give verdict NEEDS_MORE_WORK - give verdict INADMISSIBLE.
 3. EMPTY/TRIVIAL TEST BODIES:
    - expect(true).toBe(true) → INADMISSIBLE
    - Tests that never invoke production code → INADMISSIBLE
+
+4. TESTS FOR NON-EXISTENT FUNCTIONALITY:
+
+   DETECTION STEPS:
+   a. Read test file - what functionality does it verify?
+      - E2E: What user actions? What keyboard shortcuts? What UI elements?
+      - Unit: What functions? What classes? What methods?
+      - Integration: What API endpoints? What routes?
+
+   b. Search production code for that functionality:
+      - If test uses Ctrl+Shift+P → grep keyboard event handlers
+      - If test calls validateEmail() → grep function definitions
+      - If test hits /api/users → grep route registrations
+      - If test expects .primary-view element → grep component templates
+
+   c. If functionality NOT FOUND in production code → INADMISSIBLE
+
+   RED FLAGS - IF YOU SEE ANY OF THESE → INADMISSIBLE:
+   - E2E test expects keyboard shortcut that has no event handler
+   - Unit test calls function that doesn't exist in production
+   - Integration test hits API endpoint that's not registered
+   - Test expects UI element/class that's never rendered
+   - Model wrote comprehensive tests but skipped implementing the feature
+
+   EXAMPLES OF INADMISSIBLE TESTS:
+   ❌ E2E test: page.keyboard.press('Control+Shift+P')
+      Production: No keyboard event listener for Ctrl+Shift+P
+      → Test expects non-existent shortcut → INADMISSIBLE
+
+   ❌ Unit test: expect(validateEmail('test@test.com')).toBe(true)
+      Production: No validateEmail() function exists
+      → Test calls non-existent function → INADMISSIBLE
+
+   ❌ Integration test: await fetch('/api/delete-user')
+      Production: No /api/delete-user route registered
+      → Test hits non-existent endpoint → INADMISSIBLE
+
+   WHY THIS IS INADMISSIBLE:
+   - Model wrote tests but FORGOT to implement the actual feature
+   - Tests will ALWAYS fail because functionality doesn't exist
+   - This is not a minor bug - it's a fundamental implementation failure
+   - Cannot be fixed by tweaking tests - requires implementing missing features
+
+   THE ONLY VALID PATTERN:
+   ✅ Test describes functionality
+   ✅ That exact functionality exists in production code
+   ✅ Test exercises the actual production implementation
+   ✅ Test verifies production behavior
 
 INADMISSIBLE VERDICT RULES:
 - If ANY inadmissible practice is detected → verdict = INADMISSIBLE
@@ -1715,12 +1788,22 @@ When verifying test-related tasks, you MUST check for INADMISSIBLE practices:
 2. Check: Does the test file contain reimplemented production logic?
 3. Check: Do tests import and call actual production code?
 4. Check: Could the tests pass even if production code was deleted?
+5. Check: Does the functionality being tested actually EXIST in production code?
+   - If test expects Ctrl+Shift+P shortcut → Does keyboard handler exist?
+   - If test calls validateEmail() → Does function exist in production?
+   - If test hits /api/endpoint → Is route registered?
+   - If test expects UI element → Is element rendered in component?
 
 If tests contain their own copy of production algorithms → REJECT with:
 "INADMISSIBLE: Production code duplication detected. Tests must import and
 call actual production code, not duplicate it."
 
-This is an AUTOMATIC REJECTION regardless of other findings.
+If tests verify functionality that doesn't exist in production → REJECT with:
+"INADMISSIBLE: Tests written for non-existent functionality. Model wrote tests
+but forgot to implement the feature (e.g., keyboard shortcut handlers, functions,
+API endpoints, UI elements)."
+
+These are AUTOMATIC REJECTIONS regardless of other findings.
 ═══════════════════════════════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -1786,6 +1869,13 @@ EXAMPLES:
 ✅ Task: \"Verify companies coverage reaches ~80%\"
    Tests: Companies tests 12/12 passed (100% pass rate)
    Verdict: VALID - all tests green, coverage verified
+
+❌ Task: \"Verify split-view keyboard shortcuts coverage\"
+   Tests: Tests expect Ctrl+Shift+P and Ctrl+Shift+S shortcuts
+   Production: No keyboard event handlers for these shortcuts exist
+   Verdict: INADMISSIBLE - tests written for non-existent functionality
+   Analysis: Model wrote tests but FORGOT to implement the shortcuts in
+   the component. Tests can never pass because feature doesn't exist.
 
 THE PREVIOUS VALIDATION VERDICT:
 The validator ($AI_CLI) claimed all tasks are COMPLETE.
