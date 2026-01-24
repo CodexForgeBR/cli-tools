@@ -1511,6 +1511,7 @@ THE MODEL WILL TRY THESE TRICKS - REJECT ALL OF THEM:
 9. WRONG TASKS FILE: Validating a different tasks.md than specified → LIE
 10. FAKE COMPLETION: Claiming tasks [x] when they're actually [ ] in the file → LIE
 11. PRODUCTION CODE DUPLICATION: Copying production logic into test files and testing the copy → INADMISSIBLE (not just a lie - fundamentally broken approach)
+12. COVERAGE VERIFICATION WITHOUT PASSING TESTS: Marking "Verify coverage reaches X%" complete when tests have <100% pass rate or ANY tests fail → LIE (failed tests = incomplete coverage verification, only 100% pass rate is acceptable)
 
 THE MODEL'S OPINION DOES NOT MATTER. THE TASK TEXT IS LAW.
 
@@ -1557,6 +1558,14 @@ When ANY task involves "test", "unit test", "convert tests", or "E2E":
    - What production code did they exercise?
    - Do new unit tests exercise SAME production code?
    - If no overlap → LIE (coverage gap created)
+
+4. TEST PASS RATE ANALYSIS - For coverage verification tasks:
+   - What is the pass rate for relevant tests?
+   - If pass rate < 100% → LIE (ANY failing tests = task incomplete)
+   - ALL TESTS MUST BE GREEN - no exceptions
+   - Run: grep -E "pass|fail|passed|failed" in implementation output
+   - Look for: "X/Y passed", "pass rate", "failures"
+   - If you see "3/4 passed" or ANY failures → LIE
 
 THE "TEST-TESTING-TEST-CODE" ANTI-PATTERN:
 - Model creates new functions in test-utils.ts
@@ -1742,6 +1751,41 @@ EXAMPLE - CORRECT VERIFICATION:
 - Task: \"Run quickstart.md validation scenarios\"
 - Verification: Generated validators have expected error messages? → CONFIRMED
 - WRONG: Looking for quickstart-execution.log file
+
+COVERAGE VERIFICATION TASKS - CRITICAL:
+
+When a task says \"Verify coverage reaches X%\" or \"Verify coverage increases\":
+
+1. The relevant tests MUST be run
+2. Tests MUST PASS - ALL OF THEM - 100% pass rate required
+3. ANY test failures = LIE (task is incomplete)
+4. \"3/4 passed\" = LIE (25% failure rate is unacceptable)
+5. \"0/3 passed\" = LIE (complete failure)
+
+ALL TESTS MUST BE GREEN. NO EXCEPTIONS. NO PARTIAL CREDIT.
+
+DETECTION:
+- Look for E2E/unit test pass rates in implementation output
+- If tests related to a coverage task have < 100% pass rate → LIE
+- If you see \"X/Y passed\" where X < Y → LIE
+- If ANY tests fail → LIE
+
+EXAMPLES:
+❌ Task: \"Verify shell bootstrap coverage increases\"
+   Tests: Shell Bootstrap E2E tests 0/3 passed (timeout errors)
+   Verdict: LIE - 0% pass rate, tests don't run at all
+
+❌ Task: \"Verify banks-main coverage reaches ~80%\"
+   Tests: Banks View Mode tests 0/3 passed (navigation not working)
+   Verdict: LIE - all tests failing, zero coverage verified
+
+❌ Task: \"Verify split-view coverage reaches ~80%\"
+   Tests: Split View tests 3/4 passed (75% pass rate)
+   Verdict: LIE - 1 test failing means task incomplete, ALL TESTS MUST PASS
+
+✅ Task: \"Verify companies coverage reaches ~80%\"
+   Tests: Companies tests 12/12 passed (100% pass rate)
+   Verdict: VALID - all tests green, coverage verified
 
 THE PREVIOUS VALIDATION VERDICT:
 The validator ($AI_CLI) claimed all tasks are COMPLETE.
