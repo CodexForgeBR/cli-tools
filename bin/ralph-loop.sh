@@ -9,6 +9,7 @@
 #   -v, --verbose            Pass verbose flag to claude code cli
 #   --ai CLI                 AI CLI to use: claude or codex (default: claude)
 #   --max-iterations N       Maximum loop iterations (default: 20)
+#   --max-inadmissible N     Max inadmissible violations before escalation (default: 5)
 #   --implementation-model   Model for implementation (default: opus for claude, config default for codex)
 #   --validation-model       Model for validation (default: opus for claude, config default for codex)
 #   --tasks-file PATH        Path to tasks.md (auto-detects: ./tasks.md, specs/*/tasks.md)
@@ -19,6 +20,8 @@
 #   2 - Max iterations reached without completion
 #   3 - Escalation requested by validator
 #   4 - Tasks blocked - human intervention needed
+#   5 - Tasks don't properly implement the plan
+#   6 - Repeated inadmissible practices (max violations exceeded)
 
 set -e
 
@@ -29,6 +32,7 @@ EXIT_MAX_ITERATIONS=2
 EXIT_ESCALATE=3
 EXIT_BLOCKED=4
 EXIT_TASKS_INVALID=5            # Tasks don't properly implement the plan
+EXIT_INADMISSIBLE=6              # Fundamentally broken - inadmissible practice detected
 
 # Default configuration
 MAX_ITERATIONS=20
@@ -42,6 +46,7 @@ OVERRIDE_AI=""
 OVERRIDE_IMPL_MODEL=""
 OVERRIDE_VAL_MODEL=""
 OVERRIDE_MAX_ITERATIONS=""
+OVERRIDE_MAX_INADMISSIBLE=""
 STATE_DIR=".ralph-loop"
 SCRIPT_START_TIME=""
 ITERATION_START_TIME=""
@@ -75,6 +80,8 @@ LAST_FEEDBACK=""
 STORED_AI_CLI=""
 STORED_IMPL_MODEL=""
 STORED_VAL_MODEL=""
+INADMISSIBLE_COUNT=0         # Track inadmissible practice violations
+MAX_INADMISSIBLE=5           # Escalate after this many inadmissible verdicts
 
 # Cross-validation configuration
 CROSS_VALIDATE=1              # ON by default
@@ -284,6 +291,15 @@ parse_args() {
                 fi
                 MAX_ITERATIONS=$2
                 OVERRIDE_MAX_ITERATIONS="1"
+                shift 2
+                ;;
+            --max-inadmissible)
+                if [[ -z "$2" || ! "$2" =~ ^[0-9]+$ ]]; then
+                    log_error "Invalid value for --max-inadmissible: $2"
+                    exit 1
+                fi
+                MAX_INADMISSIBLE=$2
+                OVERRIDE_MAX_INADMISSIBLE="1"
                 shift 2
                 ;;
             --max-claude-retry)
@@ -636,6 +652,7 @@ try:
     print(f"STORED_ORIGINAL_PLAN_FILE='{state.get('original_plan_file', '')}'")
     print(f"STORED_GITHUB_ISSUE='{state.get('github_issue', '')}'")
     print(f"STORED_MAX_ITERATIONS={state.get('max_iterations', 20)}")
+    print(f"STORED_MAX_INADMISSIBLE={state.get('max_inadmissible', 5)}")
 
     # Restore learnings settings (defaults for backward compatibility)
     learnings = state.get('learnings', {})
@@ -646,6 +663,9 @@ try:
     retry_state = state.get('retry_state', {})
     print(f"CURRENT_RETRY_ATTEMPT={retry_state.get('attempt', 1)}")
     print(f"CURRENT_RETRY_DELAY={retry_state.get('delay', 5)}")
+
+    # Inadmissible count (defaults to 0 for backward compatibility)
+    print(f"INADMISSIBLE_COUNT={state.get('inadmissible_count', 0)}")
 
     sys.exit(0)
 except Exception as e:
@@ -1033,6 +1053,7 @@ save_state() {
     "implementation_model": "$IMPL_MODEL",
     "validation_model": "$VAL_MODEL",
     "max_iterations": $MAX_ITERATIONS,
+    "max_inadmissible": $MAX_INADMISSIBLE,
     "original_plan_file": "$ORIGINAL_PLAN_FILE",
     "github_issue": "$GITHUB_ISSUE",
     "learnings": {
@@ -1053,6 +1074,7 @@ save_state() {
         "attempt": $CURRENT_RETRY_ATTEMPT,
         "delay": $CURRENT_RETRY_DELAY
     },
+    "inadmissible_count": $INADMISSIBLE_COUNT,
     "last_feedback": "$escaped_feedback"
 }
 EOF
@@ -1093,6 +1115,36 @@ If a task says \"REMOVE X\" → YOU MUST REMOVE X. Period.
 - NOT \"N/A because browser-dependent\"
 - NOT \"skip because complementary\"
 - REMOVE MEANS REMOVE. DELETE THE CODE.
+
+═══════════════════════════════════════════════════════════════════════════════
+INADMISSIBLE PRACTICES - AUTOMATIC FAILURE
+═══════════════════════════════════════════════════════════════════════════════
+
+These practices will result in IMMEDIATE ESCALATION with INADMISSIBLE verdict.
+Do NOT do any of these under any circumstances:
+
+1. PRODUCTION CODE DUPLICATION IN TESTS:
+   - DO NOT copy production logic into test files
+   - DO NOT create \"test helpers\" that re-implement production algorithms
+   - DO NOT create \"test harnesses\" that duplicate production code
+   - Tests MUST import and call ACTUAL production code
+
+   WRONG: class TestHelper { SameMethodAsProduction() { /* copied logic */ } }
+   RIGHT: import { ProductionClass } from '@app/production';
+          productionInstance.methodUnderTest();
+
+2. MOCK THE SUBJECT UNDER TEST:
+   - DO NOT mock the exact code you're supposed to be testing
+   - Mocking dependencies is fine; mocking the subject = FAILURE
+
+3. TRIVIAL/EMPTY TESTS:
+   - DO NOT write tests that don't invoke production code
+   - DO NOT write expect(true).toBe(true) style tests
+
+If you violate these rules, the entire implementation will be marked INADMISSIBLE.
+You will get explicit feedback on how to fix it, but repeated violations will
+escalate to human intervention. Fix inadmissible practices IMMEDIATELY.
+═══════════════════════════════════════════════════════════════════════════════
 
 If a task says \"CREATE X\" → YOU MUST CREATE X.
 If a task says \"MODIFY X\" → YOU MUST MODIFY X.
@@ -1274,6 +1326,7 @@ THE MODEL WILL TRY THESE TRICKS - REJECT ALL OF THEM:
 8. FABRICATED TASK COUNT: "All 69 tasks complete" when file has different count → LIE
 9. WRONG TASKS FILE: Validating a different tasks.md than specified → LIE
 10. FAKE COMPLETION: Claiming tasks [x] when they're actually [ ] in the file → LIE
+11. PRODUCTION CODE DUPLICATION: Copying production logic into test files and testing the copy → INADMISSIBLE (not just a lie - fundamentally broken approach)
 
 THE MODEL'S OPINION DOES NOT MATTER. THE TASK TEXT IS LAW.
 
@@ -1328,6 +1381,72 @@ THE "TEST-TESTING-TEST-CODE" ANTI-PATTERN:
 - Production code is NEVER tested
 - This is a COMPLETE FAILURE even though files exist and tests pass
 
+═══════════════════════════════════════════════════════════════════════════════
+INADMISSIBLE PRACTICES - AUTOMATIC ESCALATION
+═══════════════════════════════════════════════════════════════════════════════
+
+These practices are so fundamentally wrong they require IMMEDIATE ESCALATION.
+Do NOT give verdict NEEDS_MORE_WORK - give verdict INADMISSIBLE.
+
+1. PRODUCTION CODE DUPLICATION IN TESTS:
+
+   DETECTION STEPS:
+   a. For each test file created/modified:
+      - Read the test file completely
+      - Read the corresponding production file
+      - Compare: Does the test contain reimplemented production logic?
+
+   b. Check import paths:
+      - Does the test import from production code paths (@app/, src/, lib/)?
+      - Or does it import from local helpers/test utilities?
+
+   c. Check what the tests actually call:
+      - Do tests call imported production classes/functions?
+      - Or do tests call locally-defined duplicates?
+
+   RED FLAGS - IF YOU SEE ANY OF THESE → INADMISSIBLE:
+   - "test harness that duplicates logic"
+   - Helper classes with same method names as production
+   - Algorithms reimplemented in test files
+   - Tests that work even if production code is deleted
+   - Coverage on copied code instead of production code
+
+   VERIFICATION COMMAND:
+   Run: diff <test_file_method> <production_file_method>
+   If they're identical or nearly identical → INADMISSIBLE
+
+   EXAMPLES OF INADMISSIBLE CODE:
+   ❌ Test file contains: calculateFoo() { return x * y; }
+      Production contains: calculateFoo() { return x * y; }
+      → Tests call the test version, not production → INADMISSIBLE
+
+   ❌ TestHelper class reimplements SplitViewComponent logic
+      → Tests call TestHelper, not SplitViewComponent → INADMISSIBLE
+
+   ❌ "duplicated logic to make unit testing possible"
+      → This phrase = AUTOMATIC INADMISSIBLE
+
+   THE ONLY VALID PATTERN:
+   ✅ import { ProductionClass } from '@app/production-code';
+   ✅ const instance = new ProductionClass();
+   ✅ const result = instance.methodUnderTest(args);
+   ✅ expect(result).toBe(expected);
+
+2. MOCKING THE SUBJECT UNDER TEST:
+   - If testing ClassA.methodB(), and methodB() is mocked → INADMISSIBLE
+   - Mocking dependencies is fine; mocking the thing you're testing = FAILURE
+
+3. EMPTY/TRIVIAL TEST BODIES:
+   - expect(true).toBe(true) → INADMISSIBLE
+   - Tests that never invoke production code → INADMISSIBLE
+
+INADMISSIBLE VERDICT RULES:
+- If ANY inadmissible practice is detected → verdict = INADMISSIBLE
+- This is MORE SEVERE than ESCALATE
+- This means the implementation approach is fundamentally broken
+- It cannot be fixed with more iterations - requires human redesign
+═══════════════════════════════════════════════════════════════════════════════
+
 YOUR FEEDBACK MUST:
 - List EVERY lie with task ID
 - Specify EXACTLY what file to edit and what to remove
@@ -1338,7 +1457,7 @@ OUTPUT FORMAT - You MUST output this exact JSON format at the end (the script pa
 \`\`\`json
 {
   "RALPH_VALIDATION": {
-    "verdict": "COMPLETE|NEEDS_MORE_WORK|BLOCKED|ESCALATE",
+    "verdict": "COMPLETE|NEEDS_MORE_WORK|BLOCKED|ESCALATE|INADMISSIBLE",
     "tasks_analysis": {
       "total_checked": <number of tasks marked [x]>,
       "actually_done": <number verified via git diff/file checks>,
@@ -1351,6 +1470,9 @@ OUTPUT FORMAT - You MUST output this exact JSON format at the end (the script pa
     ],
     "lies": [
       {"task": "T0XX description", "claimed": "what model said it did", "reality": "what actually happened per git diff"}
+    ],
+    "inadmissible_practices": [
+      {"practice": "PRODUCTION_CODE_DUPLICATION", "description": "Test file X contains duplicated logic from production file Y", "evidence": "diff output or code snippets"}
     ],
     "feedback": "SPECIFIC instructions for what implementation model must ACTUALLY DO next iteration. List exact files to modify and exact changes needed."
   }
@@ -1389,6 +1511,24 @@ WHAT TO LOOK FOR:
 - Missing files that should exist
 - Files that should be deleted but still exist
 - Tests that don't actually test production code
+
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL - PRODUCTION CODE DUPLICATION CHECK (INADMISSIBLE)
+═══════════════════════════════════════════════════════════════════════════════
+
+When verifying test-related tasks, you MUST check for INADMISSIBLE practices:
+
+1. Read test files and corresponding production files
+2. Check: Does the test file contain reimplemented production logic?
+3. Check: Do tests import and call actual production code?
+4. Check: Could the tests pass even if production code was deleted?
+
+If tests contain their own copy of production algorithms → REJECT with:
+"INADMISSIBLE: Production code duplication detected. Tests must import and
+call actual production code, not duplicate it."
+
+This is an AUTOMATIC REJECTION regardless of other findings.
+═══════════════════════════════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════════════════════════════
 VERIFICATION STANDARDS BY TASK TYPE
@@ -2644,6 +2784,14 @@ PYTHON_EOF
                 log_info "Using command-line max_iterations: $MAX_ITERATIONS (overriding stored value)"
             fi
 
+            # Restore max_inadmissible from saved state unless overridden
+            if [[ -z "$OVERRIDE_MAX_INADMISSIBLE" && -n "$STORED_MAX_INADMISSIBLE" ]]; then
+                MAX_INADMISSIBLE="$STORED_MAX_INADMISSIBLE"
+                log_info "Restored max_inadmissible from state: $MAX_INADMISSIBLE"
+            elif [[ -n "$OVERRIDE_MAX_INADMISSIBLE" ]]; then
+                log_info "Using command-line max_inadmissible: $MAX_INADMISSIBLE (overriding stored value)"
+            fi
+
             # Validate state integrity (disable set -e temporarily)
             local validation_error
             set +e
@@ -3450,6 +3598,57 @@ except Exception as e:
                 echo -e "Reason: $feedback\n"
 
                 exit $EXIT_ESCALATE
+                ;;
+
+            INADMISSIBLE)
+                # Increment inadmissible counter
+                ((INADMISSIBLE_COUNT++)) || true
+
+                feedback=$(parse_feedback "$val_json")
+                LAST_FEEDBACK="$feedback"
+                log_error "INADMISSIBLE PRACTICE DETECTED (count: $INADMISSIBLE_COUNT/$MAX_INADMISSIBLE)"
+                log_summary "ITERATION $iteration: INADMISSIBLE (count: $INADMISSIBLE_COUNT)"
+
+                # Check if we've exceeded the threshold
+                if [[ $INADMISSIBLE_COUNT -gt $MAX_INADMISSIBLE ]]; then
+                    local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
+                    log_error "MAX INADMISSIBLE VIOLATIONS REACHED - Escalating to human"
+                    CURRENT_PHASE="inadmissible_escalated"
+                    save_state "INADMISSIBLE_ESCALATED" "$iteration" "INADMISSIBLE"
+                    log_summary "INADMISSIBLE ESCALATED: $feedback ($(format_duration $total_elapsed))"
+
+                    echo -e "\n${RED}╔═══════════════════════════════════════════════════════════════╗${NC}"
+                    echo -e "${RED}║         REPEATED INADMISSIBLE PRACTICE - ESCALATING          ║${NC}"
+                    echo -e "${RED}║     Model continues using fundamentally broken approach       ║${NC}"
+                    echo -e "${RED}║            Human intervention required                        ║${NC}"
+                    echo -e "${RED}╠═══════════════════════════════════════════════════════════════╣${NC}"
+                    printf "${RED}║  Violations: %-3d/%-3d         Total time: %-18s║${NC}\n" "$INADMISSIBLE_COUNT" "$MAX_INADMISSIBLE" "$(format_duration $total_elapsed)"
+                    echo -e "${RED}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+                    echo -e "${RED}INADMISSIBLE PRACTICE (repeated $INADMISSIBLE_COUNT times):${NC}"
+                    echo -e "$feedback\n"
+                    echo -e "${YELLOW}The implementation model repeatedly used forbidden approaches.${NC}"
+                    echo -e "${YELLOW}This requires human intervention to redesign the solution.${NC}\n"
+
+                    exit $EXIT_INADMISSIBLE
+                fi
+
+                # Loop back with explicit feedback (like NEEDS_MORE_WORK)
+                CURRENT_PHASE="inadmissible_retry"
+                save_state "INADMISSIBLE_RETRY" "$iteration" "INADMISSIBLE"
+
+                echo -e "\n${RED}╔═══════════════════════════════════════════════════════════════╗${NC}"
+                echo -e "${RED}║              INADMISSIBLE PRACTICE DETECTED                   ║${NC}"
+                echo -e "${RED}║           This is a FORBIDDEN approach - fix it               ║${NC}"
+                echo -e "${RED}╠═══════════════════════════════════════════════════════════════╣${NC}"
+                printf "${RED}║  Iteration: %-3d              Violations: %-3d/%-3d         ║${NC}\n" "$iteration" "$INADMISSIBLE_COUNT" "$MAX_INADMISSIBLE"
+                echo -e "${RED}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+                echo -e "${RED}INADMISSIBLE PRACTICE:${NC}"
+                echo -e "$feedback\n"
+                echo -e "${YELLOW}You MUST fix this fundamental issue. Read the feedback carefully.${NC}"
+                echo -e "${YELLOW}Warning: $INADMISSIBLE_COUNT/$MAX_INADMISSIBLE violations. Further violations will escalate.${NC}\n"
+
+                # Continue to next iteration (like NEEDS_MORE_WORK)
+                continue
                 ;;
 
             BLOCKED)
