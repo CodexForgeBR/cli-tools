@@ -1325,6 +1325,54 @@ Do NOT do any of these under any circumstances:
    - DO NOT write tests that don't invoke production code
    - DO NOT write expect(true).toBe(true) style tests
 
+4. TESTS FOR NON-EXISTENT FUNCTIONALITY - CRITICAL:
+   - DO NOT write tests for functionality that doesn't exist in production code
+   - If you write a test that expects functionality, that functionality MUST EXIST
+   - Tests verify EXISTING features or NEW features you IMPLEMENT
+   - Tests come AFTER implementation, not INSTEAD OF implementation
+
+   EXAMPLES OF INADMISSIBLE TEST-WRITING:
+   ❌ Write E2E test: page.keyboard.press('Control+Shift+P')
+      But NEVER implement the keyboard event handler for Ctrl+Shift+P
+      → INADMISSIBLE: Test for non-existent shortcut
+
+   ❌ Write unit test: expect(validateEmail('test@test.com')).toBe(true)
+      But NEVER create the validateEmail() function
+      → INADMISSIBLE: Test for non-existent function
+
+   ❌ Write integration test: await fetch('/api/delete-user')
+      But NEVER register the /api/delete-user route
+      → INADMISSIBLE: Test for non-existent endpoint
+
+   ❌ Write E2E test: await page.locator('.primary-view').isVisible()
+      But NEVER render a .primary-view element in the component
+      → INADMISSIBLE: Test for non-existent UI element
+
+   THE ONLY VALID PATTERN - TWO-STEP PROCESS:
+   ✅ STEP 1: Implement the functionality in production code
+      - Add keyboard event handler for Ctrl+Shift+P
+      - Create validateEmail() function
+      - Register /api/delete-user route
+      - Render .primary-view element
+   ✅ STEP 2: Write tests that verify the functionality you just implemented
+      - Test that Ctrl+Shift+P calls the handler
+      - Test that validateEmail() works correctly
+      - Test that /api/delete-user responds
+      - Test that .primary-view is visible
+
+   DETECTION - VALIDATOR WILL CHECK:
+   - Read your test files - what functionality do they expect?
+   - Search production code - does that functionality exist?
+   - If NOT FOUND → INADMISSIBLE verdict → You must fix it
+
+   WHY THIS IS INADMISSIBLE:
+   - You wrote tests but FORGOT to implement the actual feature
+   - Tests will ALWAYS FAIL because the feature doesn't exist
+   - This is not a minor bug - it's forgetting half the work
+   - Cannot be fixed by tweaking tests - requires implementing missing features
+
+   REMEMBER: Implementation first, then tests. Not tests instead of implementation.
+
 If you violate these rules, the entire implementation will be marked INADMISSIBLE.
 You will get explicit feedback on how to fix it, but repeated violations will
 escalate to human intervention. Fix inadmissible practices IMMEDIATELY.
@@ -1381,6 +1429,14 @@ REMEMBER:
 - YOU CANNOT REWRITE TASKS
 - IF TASK SAYS REMOVE → REMOVE IT
 - NO EXCUSES. NO OPINIONS. JUST DO IT.
+
+CRITICAL - DO NOT WRITE TESTS FOR NON-EXISTENT FUNCTIONALITY:
+- If you write a test that expects a keyboard shortcut → IMPLEMENT THE HANDLER FIRST
+- If you write a test that calls a function → CREATE THE FUNCTION FIRST
+- If you write a test that hits an API endpoint → REGISTER THE ROUTE FIRST
+- If you write a test that expects a UI element → RENDER THE ELEMENT FIRST
+- Implementation FIRST, then tests. Not tests INSTEAD OF implementation.
+- Tests for features you didn't implement = INADMISSIBLE = Automatic failure
 
 EVIDENCE CAPTURE FOR NON-FILE TASKS:
 For tasks that don't just create/modify files, capture evidence in RALPH_STATUS.notes:
