@@ -2883,7 +2883,9 @@ except Exception as e:
             echo "3. Or regenerate tasks.md with spec-kit using the updated plan"
             echo ""
 
-            save_state "TASKS_INVALID" 0 "INVALID"
+            # Clean up session since loop never started
+            log_info "Cleaning up session directory..."
+            rm -rf "$STATE_DIR"
             exit $EXIT_TASKS_INVALID
         fi
 
