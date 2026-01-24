@@ -97,6 +97,13 @@ FINAL_PLAN_AI_AVAILABLE=0    # Whether final plan AI is installed
 OVERRIDE_FINAL_PLAN_AI=""    # Override final plan AI
 OVERRIDE_FINAL_PLAN_MODEL="" # Override final plan model
 
+# Tasks validation configuration (initial plan check)
+TASKS_VAL_AI=""               # AI for tasks validation (defaults to AI_CLI)
+TASKS_VAL_MODEL=""            # Model for tasks validation (defaults to IMPL_MODEL)
+TASKS_VAL_AI_AVAILABLE=0     # Whether tasks validation AI is installed
+OVERRIDE_TASKS_VAL_AI=""     # Override tasks validation AI
+OVERRIDE_TASKS_VAL_MODEL=""  # Override tasks validation model
+
 # Retry state tracking for resume
 CURRENT_RETRY_ATTEMPT=1
 CURRENT_RETRY_DELAY=5
@@ -200,6 +207,8 @@ Options:
   --cross-validation-ai AI   Override cross-validation AI (default: opposite of --ai)
   --final-plan-validation-ai AI      AI for final plan validation (default: same as cross-validation)
   --final-plan-validation-model M    Model for final plan validation (default: same as cross-validation)
+  --tasks-validation-ai AI           AI for tasks validation (default: same as implementation)
+  --tasks-validation-model M         Model for tasks validation (default: same as implementation)
   --resume                   Resume from last interrupted session
   --resume-force             Resume even if tasks.md has changed
   --clean                    Start fresh, delete existing .ralph-loop state
@@ -420,6 +429,32 @@ parse_args() {
                 OVERRIDE_FINAL_PLAN_MODEL="1"
                 shift 2
                 ;;
+            --tasks-validation-ai)
+                if [[ -z "$2" ]]; then
+                    log_error "Missing value for --tasks-validation-ai"
+                    exit 1
+                fi
+                case "$2" in
+                    claude|codex)
+                        TASKS_VAL_AI="$2"
+                        OVERRIDE_TASKS_VAL_AI="1"
+                        ;;
+                    *)
+                        log_error "Invalid value for --tasks-validation-ai: $2 (expected: claude or codex)"
+                        exit 1
+                        ;;
+                esac
+                shift 2
+                ;;
+            --tasks-validation-model)
+                if [[ -z "$2" ]]; then
+                    log_error "Missing value for --tasks-validation-model"
+                    exit 1
+                fi
+                TASKS_VAL_MODEL="$2"
+                OVERRIDE_TASKS_VAL_MODEL="1"
+                shift 2
+                ;;
             --resume)
                 RESUME_FLAG="1"
                 shift
@@ -576,6 +611,42 @@ set_final_plan_validation_ai() {
     else
         FINAL_PLAN_AI_AVAILABLE=0
         log_warn "Final plan validation: $FINAL_PLAN_AI not found"
+    fi
+}
+
+# Set up tasks validation AI (defaults to implementation AI)
+set_tasks_validation_ai() {
+    # Only relevant if we have an original plan file or GitHub issue
+    if [[ -z "$ORIGINAL_PLAN_FILE" ]]; then
+        return
+    fi
+
+    # Determine tasks validation AI (unless overridden)
+    if [[ -z "$OVERRIDE_TASKS_VAL_AI" ]]; then
+        # Default: use same AI as implementation
+        TASKS_VAL_AI="$AI_CLI"
+        if [[ -z "$OVERRIDE_TASKS_VAL_MODEL" ]]; then
+            TASKS_VAL_MODEL="$IMPL_MODEL"
+        fi
+    else
+        # User explicitly set TASKS_VAL_AI via --tasks-validation-ai
+        # Set default model if not specified
+        if [[ -z "$OVERRIDE_TASKS_VAL_MODEL" && -z "$TASKS_VAL_MODEL" ]]; then
+            if [[ "$TASKS_VAL_AI" == "claude" ]]; then
+                TASKS_VAL_MODEL="opus"
+            else
+                TASKS_VAL_MODEL="default"
+            fi
+        fi
+    fi
+
+    # Check if tasks validation AI is installed
+    if command -v "$TASKS_VAL_AI" &>/dev/null; then
+        TASKS_VAL_AI_AVAILABLE=1
+        log_info "Tasks validation enabled: will use $TASKS_VAL_AI ($TASKS_VAL_MODEL)"
+    else
+        TASKS_VAL_AI_AVAILABLE=0
+        log_warn "Tasks validation: $TASKS_VAL_AI not found"
     fi
 }
 
@@ -1173,6 +1244,11 @@ save_state() {
         "ai": "$FINAL_PLAN_AI",
         "model": "$FINAL_PLAN_MODEL",
         "available": $([[ "$FINAL_PLAN_AI_AVAILABLE" -eq 1 ]] && echo "true" || echo "false")
+    },
+    "tasks_validation": {
+        "ai": "$TASKS_VAL_AI",
+        "model": "$TASKS_VAL_MODEL",
+        "available": $([[ "$TASKS_VAL_AI_AVAILABLE" -eq 1 ]] && echo "true" || echo "false")
     },
     "circuit_breaker": {
         "no_progress_count": $NO_PROGRESS_COUNT,
@@ -2624,20 +2700,20 @@ run_tasks_validation() {
     # All logs go to stderr
     log_phase "TASKS VALIDATION PHASE" >&2
     log_info "Validating that tasks.md properly implements the original plan" >&2
-    log_info "Using implementation AI: $AI_CLI" >&2
-    log_info "Model: $IMPL_MODEL" >&2
+    log_info "Using tasks validation AI: $TASKS_VAL_AI" >&2
+    log_info "Model: $TASKS_VAL_MODEL" >&2
 
     local prompt
     prompt=$(generate_tasks_validation_prompt)
 
     set +e  # Temporarily disable exit on error
-    if [[ "$AI_CLI" == "codex" ]]; then
+    if [[ "$TASKS_VAL_AI" == "codex" ]]; then
         local -a codex_args=(
             --dangerously-bypass-approvals-and-sandbox
         )
 
-        if [[ -n "$IMPL_MODEL" && "$IMPL_MODEL" != "default" ]]; then
-            codex_args+=(-m "$IMPL_MODEL")
+        if [[ -n "$TASKS_VAL_MODEL" && "$TASKS_VAL_MODEL" != "default" ]]; then
+            codex_args+=(-m "$TASKS_VAL_MODEL")
         fi
 
         codex_args+=("$prompt")
@@ -2651,7 +2727,7 @@ run_tasks_validation() {
     else
         local -a claude_args=(
             --dangerously-skip-permissions
-            --model "$IMPL_MODEL"
+            --model "$TASKS_VAL_MODEL"
             --print
             --max-turns "$MAX_TURNS"
         )
@@ -2750,6 +2826,7 @@ main() {
     set_default_models_for_ai
     set_cross_validation_ai
     set_final_plan_validation_ai
+    set_tasks_validation_ai
 
     # Validate mutually exclusive flags
     if [[ -n "$ORIGINAL_PLAN_FILE" && -n "$GITHUB_ISSUE" ]]; then
