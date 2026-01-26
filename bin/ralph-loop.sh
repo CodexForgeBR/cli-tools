@@ -3622,7 +3622,9 @@ PYTHON_EOF
             # Display violations
             echo "${tasks_val_content#TEMPLATE_VIOLATIONS:}"
 
-            save_state "failed" 0
+            # Clean up session since loop never started (same as AI validation failure)
+            log_info "Cleaning up session directory..."
+            rm -rf "$STATE_DIR"
             exit $EXIT_TASKS_INVALID
         fi
 
