@@ -1964,20 +1964,68 @@ EOF
 generate_tasks_validation_prompt() {
     local plan_content
     local tasks_content
+    local template_content
+    local constitution_content
+    local has_template=0
+    local has_constitution=0
 
     plan_content=$(cat "$ORIGINAL_PLAN_FILE")
     tasks_content=$(cat "$TASKS_FILE")
 
+    # Try to get template content
+    local template_file
+    template_file=$(get_tasks_template "$TASKS_FILE")
+    if [[ -f "$template_file" ]]; then
+        template_content=$(cat "$template_file")
+        has_template=1
+    fi
+
+    # Try to get constitution content
+    local constitution_file
+    constitution_file=$(get_constitution "$TASKS_FILE")
+    if [[ -f "$constitution_file" ]]; then
+        constitution_content=$(cat "$constitution_file")
+        has_constitution=1
+    fi
+
     cat << EOF
-YOU ARE VALIDATING THAT SPEC-KIT GENERATED TASKS PROPERLY IMPLEMENT THE ORIGINAL PLAN.
+YOU ARE VALIDATING THAT SPEC-KIT GENERATED TASKS PROPERLY IMPLEMENT THE ORIGINAL PLAN AND FOLLOW PROJECT RULES.
 
 CONTEXT:
 The user created an original plan file using Claude Code's plan mode.
 Then they ran spec-kit (GitHub's /specify.implement command) which generated tasks.md from that plan.
-Now we need to verify that tasks.md properly covers all the requirements from the original plan.
+Now we need to verify that tasks.md:
+1. Properly covers all requirements from the original plan (SEMANTIC VALIDATION)
+2. Follows all rules and structure from the tasks template (TEMPLATE COMPLIANCE)
+3. Respects all project principles and requirements from the constitution (CONSTITUTION COMPLIANCE)
 
 ORIGINAL PLAN FILE: $ORIGINAL_PLAN_FILE
 TASKS FILE: $TASKS_FILE
+EOF
+
+    if [[ $has_template -eq 1 ]]; then
+        cat << EOF
+TASKS TEMPLATE FILE: $template_file
+
+TASKS TEMPLATE CONTENT:
+\`\`\`
+$template_content
+\`\`\`
+EOF
+    fi
+
+    if [[ $has_constitution -eq 1 ]]; then
+        cat << EOF
+CONSTITUTION FILE: $constitution_file
+
+CONSTITUTION CONTENT:
+\`\`\`
+$constitution_content
+\`\`\`
+EOF
+    fi
+
+    cat << EOF
 
 ORIGINAL PLAN CONTENT:
 \`\`\`
@@ -1989,7 +2037,9 @@ GENERATED TASKS CONTENT:
 $tasks_content
 \`\`\`
 
-YOUR JOB:
+YOUR JOB - THREE-PART VALIDATION:
+
+PART 1: SEMANTIC VALIDATION (Plan Coverage)
 1. Read the original plan carefully and identify ALL requirements, features, and directives
 2. Read the generated tasks.md and check if it covers those requirements
 3. Look for:
@@ -1997,12 +2047,65 @@ YOUR JOB:
    - Contradictions between the plan and tasks.md
    - Ignored directives or important details from the plan
    - Incomplete task breakdown that doesn't fully implement the plan
+EOF
+
+    if [[ $has_template -eq 1 ]]; then
+        cat << EOF
+
+PART 2: TEMPLATE COMPLIANCE (Structure & Rules)
+1. Read the tasks template carefully and identify ALL rules, forbidden patterns, and required sections
+2. Check if tasks.md follows these rules:
+   - FORBIDDEN sections: tasks.md MUST NOT contain any forbidden patterns (e.g., git push, PR creation)
+   - Required sections: tasks.md MUST include all required sections (e.g., Phase FINAL)
+   - Multi-repo rules: If tasks mention dependent repositories (BCL, MDA), check for required deployment tasks
+   - Structure: tasks.md should follow the template's organizational patterns
+3. Be strict about FORBIDDEN items - even one violation should fail validation
+EOF
+    fi
+
+    if [[ $has_constitution -eq 1 ]]; then
+        cat << EOF
+
+PART 3: CONSTITUTION COMPLIANCE (Project Principles & Architecture)
+1. Read the constitution carefully and identify ALL mandatory principles, architecture requirements, and quality gates
+2. Check if tasks.md and the planned approach respect these requirements:
+   - Architecture mandates: gRPC-only APIs, Event Sourcing, CQRS, etc.
+   - Quality gates: StyleCop, pre-commit hooks, test requirements, code review workflows
+   - Workflow requirements: BCL/MDA cross-repository workflows, deployment procedures
+   - Technology constraints: External services architecture, specific library requirements
+   - Security standards: Authentication, authorization, vulnerability scanning
+3. Look for plan/task contradictions with constitutional principles:
+   - If plan says "REST API" but constitution requires gRPC → INVALID
+   - If tasks skip pre-commit validation but constitution requires it → INVALID
+   - If BCL workflow incomplete but constitution mandates specific steps → INVALID
+4. Be strict about MANDATORY principles - these are non-negotiable architecture decisions
+EOF
+    fi
+
+    cat << EOF
 
 IMPORTANT RULES:
 - Do NOT reference implementation details or code (that hasn't been written yet)
-- Only compare the plan document against the tasks document
-- Be thorough but fair - tasks.md doesn't need to match the plan word-for-word
-- Focus on whether the tasks, if completed, would fully implement the plan
+- Only compare the plan, template, and constitution against the tasks document
+- Be thorough but fair - tasks.md doesn't need to match word-for-word
+- Focus on whether the tasks would fully implement the plan and follow all template and constitution rules
+EOF
+
+    if [[ $has_template -eq 1 ]]; then
+        cat << EOF
+- FORBIDDEN items are absolute violations - no exceptions
+- Template rules exist to prevent common mistakes - enforce them strictly
+EOF
+    fi
+
+    if [[ $has_constitution -eq 1 ]]; then
+        cat << EOF
+- MANDATORY constitutional principles are non-negotiable - architecture violations must fail validation
+- Constitution defines the "how" - if tasks violate architectural requirements, they cannot proceed
+EOF
+    fi
+
+    cat << EOF
 
 OUTPUT FORMAT - You MUST output this exact JSON format at the end:
 \`\`\`json
@@ -2013,7 +2116,23 @@ OUTPUT FORMAT - You MUST output this exact JSON format at the end:
       "total_plan_requirements": <number of distinct requirements in the plan>,
       "requirements_covered": <number properly covered in tasks.md>,
       "missing_requirements": <number of requirements not covered>,
-      "contradictions_found": <number of contradictions>
+      "contradictions_found": <number of contradictions>,
+EOF
+
+    if [[ $has_template -eq 1 ]]; then
+        cat << EOF
+      "template_violations": <number of template rule violations>,
+      "forbidden_patterns_found": <number of forbidden items in tasks.md>,
+EOF
+    fi
+
+    if [[ $has_constitution -eq 1 ]]; then
+        cat << EOF
+      "constitution_violations": <number of constitutional principle violations>
+EOF
+    fi
+
+    cat << EOF
     },
     "missing_items": [
       "Specific requirement from plan that's missing in tasks.md",
@@ -2022,14 +2141,35 @@ OUTPUT FORMAT - You MUST output this exact JSON format at the end:
     "contradictions": [
       {"plan_says": "...", "tasks_say": "..."}
     ],
-    "feedback": "If INVALID: specific explanation of what's missing or wrong. If VALID: brief confirmation."
+EOF
+
+    if [[ $has_template -eq 1 ]]; then
+        cat << EOF
+    "template_violations": [
+      "Specific template rule that was violated",
+      "Another template violation"
+    ],
+EOF
+    fi
+
+    if [[ $has_constitution -eq 1 ]]; then
+        cat << EOF
+    "constitution_violations": [
+      "Specific constitutional principle that was violated",
+      "Another constitution violation"
+    ],
+EOF
+    fi
+
+    cat << EOF
+    "feedback": "If INVALID: specific explanation of what's missing, wrong, or violates template/constitution rules. If VALID: brief confirmation."
   }
 }
 \`\`\`
 
 VERDICT MEANINGS:
-- VALID: Tasks.md properly covers the original plan - proceed with implementation
-- INVALID: Tasks.md is missing requirements or contradicts the plan - abort immediately
+- VALID: Tasks.md properly covers the plan AND follows all template rules AND respects all constitutional principles - proceed with implementation
+- INVALID: Tasks.md is missing requirements, contradicts the plan, violates template rules, OR violates constitutional principles - abort immediately
 
 BEGIN YOUR VALIDATION NOW.
 EOF
@@ -2883,6 +3023,95 @@ run_cross_validation() {
     echo "$output_file"
 }
 
+# Get tasks template file path
+get_tasks_template() {
+    local tasks_file=$1
+    local git_root
+
+    # Get git root relative to tasks file directory
+    git_root=$(cd "$(dirname "$tasks_file")" && git rev-parse --show-toplevel 2>/dev/null) || return 1
+
+    echo "$git_root/.specify/templates/tasks-template.md"
+}
+
+# Get constitution file path
+get_constitution() {
+    local tasks_file=$1
+    local git_root
+
+    # Get git root relative to tasks file directory
+    git_root=$(cd "$(dirname "$tasks_file")" && git rev-parse --show-toplevel 2>/dev/null) || return 1
+
+    echo "$git_root/.specify/memory/constitution.md"
+}
+
+# Check template compliance with fast bash checks
+check_template_compliance() {
+    local tasks_file=$1
+    local template_file=$2
+    local violations=()
+
+    # Check if template exists
+    if [[ ! -f "$template_file" ]]; then
+        return 0  # No template = no violations
+    fi
+
+    local tasks_content
+    tasks_content=$(cat "$tasks_file")
+
+    # Extract FORBIDDEN patterns from template
+    if grep -q "FORBIDDEN" "$template_file"; then
+        local forbidden_section
+        forbidden_section=$(sed -n '/FORBIDDEN/,/^##/p' "$template_file" | sed '$d')
+
+        # Check for git push violations
+        if echo "$forbidden_section" | grep -qi "git push"; then
+            if echo "$tasks_content" | grep -iE "(git push|Push.*remote)" > /dev/null; then
+                violations+=("FORBIDDEN: tasks.md contains 'git push' tasks")
+            fi
+        fi
+
+        # Check for PR creation violations
+        if echo "$forbidden_section" | grep -qi "PR creation"; then
+            if echo "$tasks_content" | grep -iE "(Create PR|gh pr create|pull request.*creat)" > /dev/null; then
+                violations+=("FORBIDDEN: tasks.md contains PR creation tasks")
+            fi
+        fi
+    fi
+
+    # Check if Phase FINAL exists (if template requires it)
+    if grep -q "^## Phase FINAL:" "$template_file"; then
+        if ! grep -q "^## Phase FINAL:" "$tasks_file"; then
+            violations+=("MISSING: tasks.md must include 'Phase FINAL' section")
+        fi
+    fi
+
+    # Check multi-repo deployment tasks
+    if echo "$tasks_content" | grep -qE "(~/source/bcl/|~/source/mda/)"; then
+        # Check for BCL deployment
+        if echo "$tasks_content" | grep -q "~/source/bcl/"; then
+            if ! echo "$tasks_content" | grep -qi "deploy.*bcl.*servidor"; then
+                violations+=("MISSING: BCL repository changes require servidor deployment task")
+            fi
+        fi
+
+        # Check for MDA deployment
+        if echo "$tasks_content" | grep -q "~/source/mda/"; then
+            if ! echo "$tasks_content" | grep -qi "deploy.*mda"; then
+                violations+=("MISSING: MDA repository changes require deployment task")
+            fi
+        fi
+    fi
+
+    # Return violations (empty = pass)
+    if [[ ${#violations[@]} -gt 0 ]]; then
+        printf '%s\n' "${violations[@]}"
+        return 1
+    fi
+
+    return 0
+}
+
 # Run tasks validation (pre-implementation, iteration 1 only)
 run_tasks_validation() {
     local output_file="$STATE_DIR/tasks-validation-output.txt"
@@ -2890,6 +3119,34 @@ run_tasks_validation() {
     # All logs go to stderr
     log_phase "TASKS VALIDATION PHASE" >&2
     log_info "Validating that tasks.md properly implements the original plan" >&2
+
+    # First, check template compliance with fast bash checks
+    local template_file
+    template_file=$(get_tasks_template "$TASKS_FILE")
+
+    if [[ -f "$template_file" ]]; then
+        log_info "Checking template compliance: $template_file" >&2
+        local violations
+        set +e  # Allow check to fail
+        violations=$(check_template_compliance "$TASKS_FILE" "$template_file")
+        local check_result=$?
+        set -e
+
+        if [[ $check_result -ne 0 ]]; then
+            # Template violations found - fail fast
+            log_error "Template compliance check FAILED" >&2
+            echo "TEMPLATE_VIOLATIONS:$violations" > "$output_file"
+            cat "$output_file" >&2
+            echo "$output_file"
+            return 1
+        fi
+
+        log_success "Template compliance check passed" >&2
+    else
+        log_info "No tasks template found - skipping template compliance check" >&2
+    fi
+
+    # Continue with existing AI-based semantic validation
     log_info "Using tasks validation AI: $TASKS_VAL_AI" >&2
     log_info "Model: $TASKS_VAL_MODEL" >&2
 
@@ -3351,6 +3608,23 @@ PYTHON_EOF
         # Run tasks validation
         local tasks_val_file
         tasks_val_file=$(run_tasks_validation)
+
+        # Check for template violations first (fast fail)
+        local tasks_val_content
+        tasks_val_content=$(cat "$tasks_val_file")
+        if [[ "$tasks_val_content" == TEMPLATE_VIOLATIONS:* ]]; then
+            log_error "Tasks validation FAILED: tasks.md violates template rules"
+            echo -e "\n${RED}╔═══════════════════════════════════════════════════════════════╗${NC}"
+            echo -e "${RED}║               TEMPLATE COMPLIANCE FAILED                      ║${NC}"
+            echo -e "${RED}║          tasks.md violates template requirements              ║${NC}"
+            echo -e "${RED}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+
+            # Display violations
+            echo "${tasks_val_content#TEMPLATE_VIOLATIONS:}"
+
+            save_state "failed" 0
+            exit $EXIT_TASKS_INVALID
+        fi
 
         # Extract and parse RALPH_TASKS_VALIDATION JSON
         local tasks_val_json
