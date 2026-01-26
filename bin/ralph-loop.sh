@@ -581,7 +581,7 @@ set_cross_validation_ai() {
 # Set up final plan validation AI (defaults to cross-validation AI)
 set_final_plan_validation_ai() {
     # Only relevant if we have an original plan file or GitHub issue
-    if [[ -z "$ORIGINAL_PLAN_FILE" ]]; then
+    if [[ -z "$ORIGINAL_PLAN_FILE" && -z "$GITHUB_ISSUE" ]]; then
         return
     fi
 
@@ -617,7 +617,7 @@ set_final_plan_validation_ai() {
 # Set up tasks validation AI (defaults to implementation AI)
 set_tasks_validation_ai() {
     # Only relevant if we have an original plan file or GitHub issue
-    if [[ -z "$ORIGINAL_PLAN_FILE" ]]; then
+    if [[ -z "$ORIGINAL_PLAN_FILE" && -z "$GITHUB_ISSUE" ]]; then
         return
     fi
 
