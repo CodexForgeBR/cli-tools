@@ -83,172 +83,40 @@ get-coderabbit-comments-with-timestamps.sh 72 --since "$LAST_COMMIT"
 
 ### rm (Wrapper Script)
 
-**Purpose:** Protective wrapper around the system `rm` command that backs up files instead of deleting them when called from automated CLI tools.
+**Purpose:** Backs up files to `~/.rm-backup/` instead of deleting when called from Claude/Codex/Node.
 
-**⚠️ CRITICAL PROTECTION MECHANISM:**
-This wrapper is designed to prevent Claude Code and other automated CLI tools from accidentally deleting important files by backing them up to `~/.rm-backup/` instead.
-
-**How It Works:**
-1. **Process Tree Analysis**: Recursively checks up to 10 parent processes to detect if called from `claude`, `codex`, or `node` processes
-2. **Whitelist Validation**: Checks all file arguments against whitelist patterns
-3. **Selective Backup**: Moves non-whitelisted files to `~/.rm-backup/` when called from automated CLIs
-4. **Transparent Passthrough**: Works normally when called from regular terminal sessions
-5. **Silent Success**: Returns exit code 0 so Claude Code thinks deletion succeeded
+**⚠️ CRITICAL**: Prevents accidental deletion of important files by automated CLI tools.
 
 **Whitelisted Patterns (Actually Deleted):**
-- **Temporary files**: `/tmp/*`, `*.tmp`
-- **Hidden files**: `.*` (dotfiles, like `.cache`, `.DS_Store`)
-- **Build artifacts**: `bin/`, `obj/`, `node_modules/`, `target/`, `dist/`, `build/`
+- `/tmp/*`, `*.tmp`, `.*` (dotfiles), `bin/`, `obj/`, `node_modules/`, `target/`, `dist/`, `build/`
 
-**Usage:**
-```bash
-# From normal terminal - works as expected (actually deletes)
-rm myfile.txt  # ✅ Deleted
+**Behavior:**
+- Normal terminal: works as expected
+- Claude Code: non-whitelisted files → `~/.rm-backup/`, whitelisted → deleted
 
-# From Claude Code - backs up non-whitelisted files
-rm important.json  # ✅ Moved to ~/.rm-backup/path/to/important.json.2025_11_04_17_00_00
+**Restore**: `cp ~/.rm-backup/path/to/file.timestamp /original/path/file`
 
-# From Claude Code - actually deletes whitelisted patterns
-rm /tmp/test.txt   # ✅ Actually deleted (temporary file)
-rm .cache          # ✅ Actually deleted (hidden file)
-rm -rf bin/        # ✅ Actually deleted (build artifact)
-```
-
-**Backup Location:**
-Files are moved to `~/.rm-backup/` preserving the original path structure with timestamp:
-```bash
-# Original: /Users/bccs/source/project/important.json
-# Backup:   ~/.rm-backup/Users/bccs/source/project/important.json.2025_11_04_17_00_00
-```
-
-**Restoring Files:**
-```bash
-# Check what was backed up
-ls -la ~/.rm-backup/
-
-# Restore a file (copy it back to original location)
-cp ~/.rm-backup/path/to/file.txt.2025_11_04_17_00_00 /original/path/file.txt
-
-# Or use mv to restore and remove backup
-mv ~/.rm-backup/path/to/file.txt.2025_11_04_17_00_00 /original/path/file.txt
-```
-
-**Cleanup Old Backups:**
-```bash
-# Review backups before deleting
-ls -la ~/.rm-backup/
-
-# Remove all backups (use system rm to bypass wrapper)
-/bin/rm -rf ~/.rm-backup
-
-# Remove backups older than 7 days
-find ~/.rm-backup -type f -mtime +7 -exec /bin/rm {} \;
-```
-
-**Bypass (If Absolutely Needed):**
-```bash
-# Use absolute path to system rm to actually delete
-/bin/rm myfile.txt
-```
-
-**Installation:**
-The wrapper is automatically active once `~/source/cli-tools/bin` is in your PATH (which appears before `/bin/`, creating an override).
-
-**Why This Exists:**
-Automated CLI tools like Claude Code can sometimes suggest destructive `rm` commands that might delete important files. This wrapper provides a safety net by backing up files instead of deleting them, while still allowing common development operations like cleaning build artifacts.
+**Bypass**: `/bin/rm myfile.txt`
 
 ### git (Wrapper Script)
 
-**Purpose:** Protective wrapper around git that blocks destructive commands when called from automated CLI tools (claude, codex, gemini).
+**Purpose:** Blocks destructive git commands when called from Claude/Codex/Gemini. **Fails fast** (exit 1) unlike rm wrapper.
 
-**⚠️ CRITICAL PROTECTION MECHANISM:**
-This wrapper prevents Claude Code and other automated tools from running destructive git commands that could:
-- Bypass pre-commit hooks (`--no-verify`)
-- Rewrite git history (force push)
-- Permanently delete uncommitted work (`reset --hard`, `clean -f`)
-
-**Key Difference from rm/rmdir Wrappers:**
-- **rm/rmdir**: Pretend to succeed (exit 0) + backup files
-- **git**: Fail fast (exit 1) + display stern error message
-
-**How It Works:**
-1. **Process Tree Analysis**: Recursively checks up to 20 parent processes for claude, codex, gemini
-2. **Command Pattern Matching**: Analyzes git command and arguments for destructive patterns
-3. **Fail Fast**: Returns exit code 1 with clear error message when blocking commands
-4. **Transparent Passthrough**: Works normally when called from regular terminal sessions
+**⚠️ CRITICAL**: Prevents bypassing pre-commit hooks, force pushing, and losing uncommitted work.
 
 **Blocked Commands:**
-- `git commit --no-verify` or `git commit -n` - Bypasses Husky.Net pre-commit validation
+- `git commit --no-verify` / `-n` - Bypasses Husky.Net validation
 - `git reset --hard` - Destroys uncommitted changes
-- `git clean -f/-d/-x` - Deletes untracked/ignored files
-- `git push --force` or `git push -f` - Rewrites remote history
-- `git push --force-with-lease` - Still rewrites history
+- `git clean -f/-d/-x` - Deletes untracked files
+- `git push --force` / `-f` / `--force-with-lease` - Rewrites history
 
-**Usage:**
-```bash
-# From regular terminal - works as expected
-git commit --no-verify -m "emergency fix"  # ✅ Executes (though Husky may still block)
+**Behavior:**
+- Normal terminal: all commands work
+- Claude Code: blocked commands → error, safe commands → work normally
 
-# From Claude Code - blocked with error
-git commit --no-verify -m "test"  # ❌ BLOCKED: Bypasses pre-commit hooks
-git reset --hard HEAD~1           # ❌ BLOCKED: Destroys uncommitted changes
-git push --force origin main      # ❌ BLOCKED: Rewrites remote history
+**Debug log**: `~/.git-wrapper-debug.log`
 
-# From Claude Code - safe commands work normally
-git status                        # ✅ Works
-git commit -m "normal commit"     # ✅ Works (runs pre-commit hooks)
-git push origin feature-branch    # ✅ Works
-```
-
-**Error Message Example:**
-```
-========================================
-GIT WRAPPER: DESTRUCTIVE COMMAND BLOCKED
-========================================
-
-BLOCKED: git commit --no-verify bypasses pre-commit hooks (Husky.Net validation)
-
-Detected automated CLI tool: claude
-
-This protection prevents Claude Code and other automated tools
-from running destructive git commands that could:
-  - Bypass security hooks (pre-commit validation)
-  - Rewrite git history (force push)
-  - Permanently delete uncommitted work (reset --hard, clean -f)
-
-To bypass this protection (if absolutely necessary):
-  1. Run the command from your regular terminal (not from Claude)
-  2. Or use the real git binary: /opt/homebrew/bin/git commit --no-verify
-
-See ~/.git-wrapper-debug.log for details
-========================================
-```
-
-**Debug Logging:**
-Commands are logged to `~/.git-wrapper-debug.log` with:
-- Process tree analysis results
-- Detected CLI tool (claude, codex, gemini)
-- Full command being executed
-- Block/allow decision reasoning
-
-**Bypass (If Absolutely Needed):**
-```bash
-# Use absolute path to real git binary
-/opt/homebrew/bin/git commit --no-verify -m "emergency"
-
-# Or run from regular terminal instead of Claude Code
-```
-
-**Installation:**
-The wrapper is automatically active once `~/source/cli-tools/bin` is in your PATH (which appears before `/opt/homebrew/bin`, creating an override).
-
-**Why This Exists:**
-Automated CLI tools can sometimes suggest destructive git commands that might:
-- Skip important validation (pre-commit hooks)
-- Rewrite shared git history (breaking collaborators)
-- Permanently lose uncommitted work
-
-This wrapper provides a safety net while still allowing all normal git operations.
+**Bypass**: `/opt/homebrew/bin/git commit --no-verify` or run from regular terminal.
 
 ## Available Workflow Skills
 
