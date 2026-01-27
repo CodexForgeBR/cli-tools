@@ -1588,10 +1588,23 @@ VERIFICATION PROCESS:
    - Check if ALL remaining are genuinely blocked (external dependencies, missing credentials, requires human decision)
    - If ALL remaining are confirmed blocked → verdict = BLOCKED
    - If some are doable → verdict = NEEDS_MORE_WORK
-6. BLOCKED = When remaining_unchecked > 0 BUT all unchecked tasks are confirmed genuinely blocked
+6. THE "QUOTE OR IT DIDN'T HAPPEN" RULE:
+   For ANY test-related task you verify, you MUST include in your feedback:
+   - At least one QUOTED code snippet from the test file showing real production code usage
+   - If you cannot quote a real production import or call from a test file,
+     that file is SUSPECT and the task is NOT verified
+
+   Example of VALID verification:
+   "T045: Verified. File banks-list.spec.ts imports BanksListComponent from
+    '@app/banks/banks-list.component' and calls render(BanksListComponent, {providers: [...]})"
+
+   Example of INVALID verification:
+   "T045: Verified. File exists and tests pass."
+   ← This proves NOTHING. You didn't read the file. NEEDS_MORE_WORK.
+7. BLOCKED = When remaining_unchecked > 0 BUT all unchecked tasks are confirmed genuinely blocked
    (Examples: requires production API keys, needs human approval, external service unavailable)
-7. COMPLETE = ONLY when lies_detected = 0 AND remaining_unchecked = 0 AND confirmed_blocked = 0 (ALL tasks done)
-8. ESCALATE = When implementation is fundamentally broken or model is stuck in a loop
+8. COMPLETE = ONLY when lies_detected = 0 AND remaining_unchecked = 0 AND confirmed_blocked = 0 (ALL tasks done)
+9. ESCALATE = When implementation is fundamentally broken or model is stuck in a loop
 
 TEST VALIDITY CHECKS - MANDATORY FOR TEST-RELATED TASKS:
 
@@ -1654,6 +1667,89 @@ THE "TEST-TESTING-TEST-CODE" ANTI-PATTERN:
 - Tests pass (they test code that was just written)
 - Production code is NEVER tested
 - This is a COMPLETE FAILURE even though files exist and tests pass
+
+═══════════════════════════════════════════════════════════════════════════════
+MANDATORY FILE SAMPLING PROTOCOL - YOU CANNOT SKIP THIS
+═══════════════════════════════════════════════════════════════════════════════
+
+BEFORE you can declare COMPLETE, you MUST perform this sampling protocol.
+Skipping this = automatic NEEDS_MORE_WORK.
+
+STEP 1: LIST ALL FILES
+Run: git diff --name-only --diff-filter=ACM
+This gives you every file that was added, copied, or modified.
+Count the test files. Record this count.
+
+STEP 2: CATEGORIZE
+Separate test files from production files.
+For test files, note their category (unit, integration, component/E2E).
+
+STEP 3: RANDOM DEEP INSPECTION
+You MUST open and READ THE FULL CONTENT of at least:
+- 30% of all test files (minimum 5 files, maximum 15 files)
+- At least 1 file from EACH test category
+- Prioritize files in the LARGEST directories (most likely to have copy-paste stubs)
+
+For EACH file you open, you MUST report:
+a) File path
+b) Number of it()/test() blocks
+c) What production code it imports (exact import lines - QUOTE THEM)
+d) What production functions/components it actually calls (QUOTE the lines)
+e) Whether it renders components, calls APIs, or tests pure logic
+f) A PASS/SUSPECT verdict with reasoning
+
+If you cannot quote actual import lines and production code calls from a file,
+you did NOT read it. NEEDS_MORE_WORK.
+
+STEP 4: PATTERN DETECTION ACROSS SAMPLED FILES
+After reading your sample, check for MASS STUB patterns:
+- Do all files in a directory follow the exact same template?
+- Do they all create the same mock objects without importing production code?
+- Do they all avoid the framework's core testing API (e.g., render(), mount(),
+  TestBed, HttpTestingController, etc.)?
+- If YES to any: extend your sample to 50% of files in that directory.
+
+STEP 5: REPORT YOUR FINDINGS
+Your RALPH_VALIDATION JSON must include a new field:
+
+"file_sampling": {
+  "total_test_files": <N>,
+  "files_inspected": <N>,
+  "files_passed": <N>,
+  "files_suspect": <N>,
+  "suspect_files": [
+    {"path": "...", "reason": "No production imports, no render() calls, only mock signal manipulation"}
+  ],
+  "inspection_details": [
+    {"path": "...", "imports": ["..."], "production_calls": ["..."], "verdict": "PASS|SUSPECT"}
+  ]
+}
+
+If files_suspect > 0: verdict CANNOT be COMPLETE. Must be NEEDS_MORE_WORK or INADMISSIBLE.
+═══════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════
+SCENARIO COUNT RECONCILIATION - MANDATORY FOR TEST MIGRATION TASKS
+═══════════════════════════════════════════════════════════════════════════════
+
+If ANY task involves migrating, converting, or rewriting tests from one
+framework/format to another, you MUST reconcile scenario counts:
+
+1. Count ORIGINAL scenarios (from git diff of deleted/modified files, or from
+   task descriptions that specify counts)
+2. Count NEW scenarios (it()/test() blocks in new files - ACTUALLY COUNT THEM
+   by reading files, don't trust the implementation model's claimed counts)
+3. If new < original: report the EXACT deficit and which scenarios are missing
+4. A deficit > 5% = NEEDS_MORE_WORK (some scenarios were silently dropped)
+
+Report in RALPH_VALIDATION JSON:
+"scenario_reconciliation": {
+  "original_count": <N>,
+  "new_count": <N>,
+  "deficit": <N>,
+  "deficit_percentage": <N>%
+}
+═══════════════════════════════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════════════════════════════
 INADMISSIBLE PRACTICES - AUTOMATIC ESCALATION
@@ -1787,6 +1883,24 @@ OUTPUT FORMAT - You MUST output this exact JSON format at the end (the script pa
       "remaining_unchecked": <number of tasks still [ ]>,
       "confirmed_blocked": <number of tasks genuinely blocked>
     },
+    "file_sampling": {
+      "total_test_files": <N>,
+      "files_inspected": <N>,
+      "files_passed": <N>,
+      "files_suspect": <N>,
+      "suspect_files": [
+        {"path": "...", "reason": "No production imports, no render() calls, only mock signal manipulation"}
+      ],
+      "inspection_details": [
+        {"path": "...", "imports": ["..."], "production_calls": ["..."], "verdict": "PASS|SUSPECT"}
+      ]
+    },
+    "scenario_reconciliation": {
+      "original_count": <N>,
+      "new_count": <N>,
+      "deficit": <N>,
+      "deficit_percentage": "<N>%"
+    },
     "blocked_tasks": [
       {"task_id": "T0XX", "description": "task description", "reason": "Why genuinely blocked (e.g., requires production API key)"}
     ],
@@ -1860,6 +1974,25 @@ but forgot to implement the feature (e.g., keyboard shortcut handlers, functions
 API endpoints, UI elements)."
 
 These are AUTOMATIC REJECTIONS regardless of other findings.
+═══════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════
+MANDATORY: YOU MUST OPEN AND READ TEST FILES
+═══════════════════════════════════════════════════════════════════════════════
+
+Do NOT just run git diff --stat and check file existence.
+You MUST open at least 5 test files (or 30% if fewer than 17 total) and:
+
+1. QUOTE the import lines from each file
+2. QUOTE the lines where production code is called
+3. Verify the file actually tests production behavior, not its own mocks
+
+If you cannot quote actual code from at least 5 test files, your verification
+is INCOMPLETE and you must verdict REJECTED.
+
+Include in your JSON:
+"files_actually_read": ["path1", "path2", ...],
+"code_quotes": [{"file": "...", "imports": "...", "production_calls": "..."}]
 ═══════════════════════════════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -1944,6 +2077,10 @@ OUTPUT FORMAT:
     "verdict": "CONFIRMED|REJECTED",
     "tasks_verified": <number of tasks you verified>,
     "discrepancies_found": <number of issues discovered>,
+    "files_actually_read": ["path1", "path2", ...],
+    "code_quotes": [
+      {"file": "...", "imports": "...", "production_calls": "..."}
+    ],
     "discrepancies": [
       {"task_id": "T001", "claimed": "...", "actual": "..."}
     ],
@@ -3970,33 +4107,17 @@ except Exception as e:
         val_json=$(extract_json_from_file "$val_output_file" "RALPH_VALIDATION") || true
 
         if [[ -z "$val_json" ]]; then
-            log_warn "Could not parse validation JSON, checking task counts directly"
+            log_warn "Could not parse validation JSON - cannot safely validate. Retrying validation."
 
             # Fallback: check tasks.md directly
             local current_unchecked
             current_unchecked=$(count_unchecked_tasks "$TASKS_FILE")
 
-            if [[ "$current_unchecked" -eq 0 ]]; then
-                local iter_elapsed=$(($(get_timestamp) - ITERATION_START_TIME))
-                local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
-
-                log_success "All tasks appear to be checked off"
-                CURRENT_PHASE="complete"
-                save_state "COMPLETE" "$iteration" "COMPLETE"
-                log_summary "Completed after $iteration iterations in $(format_duration $total_elapsed) (fallback check)"
-
-                echo -e "\n${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-                echo -e "${GREEN}║                    RALPH LOOP COMPLETE                        ║${NC}"
-                echo -e "${GREEN}║              All tasks checked off (fallback)                 ║${NC}"
-                echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
-                printf "${GREEN}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
-                echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
-
-                exit $EXIT_SUCCESS
-            fi
-
-            feedback="Validation did not provide structured output. $current_unchecked tasks remain unchecked. Please continue implementation."
+            # Do NOT assume completion when JSON parse fails - this is unsafe
+            # Instead, provide feedback and retry the validation phase
+            feedback="Validation did not provide structured JSON output. This is required for verification. Please re-run validation with proper JSON format. ($current_unchecked tasks marked as unchecked, but this cannot be safely verified without structured output.)"
             LAST_FEEDBACK="$feedback"  # Store for state saving
+            log_warn "Cannot verify completion without structured JSON - continuing to retry validation"
             continue
         fi
 
@@ -4036,24 +4157,12 @@ except Exception as e:
                         cross_val_json=$(extract_json_from_file "$cross_val_file" "RALPH_CROSS_VALIDATION") || true
 
                         if [[ -z "$cross_val_json" ]]; then
-                            log_warn "Could not parse cross-validation JSON, assuming confirmed"
-                            # Treat as confirmed if we can't parse
-                            local iter_elapsed=$(($(get_timestamp) - ITERATION_START_TIME))
-                            local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
-
-                            log_success "All tasks completed and verified!"
-                            CURRENT_PHASE="complete"
-                            save_state "COMPLETE" "$iteration" "COMPLETE"
-                            log_summary "SUCCESS: All tasks completed after $iteration iterations in $(format_duration $total_elapsed)"
-
-                            echo -e "\n${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-                            echo -e "${GREEN}║                    RALPH LOOP COMPLETE                        ║${NC}"
-                            echo -e "${GREEN}║              All tasks verified and complete!                 ║${NC}"
-                            echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
-                            printf "${GREEN}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
-                            echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
-
-                            exit $EXIT_SUCCESS
+                            log_warn "Could not parse cross-validation JSON - treating as REJECTED"
+                            # Treat as REJECTED if we can't parse - cannot safely verify without structured output
+                            feedback="Cross-validation by $CROSS_AI did not provide structured JSON output. This is required for independent verification. Please re-run cross-validation with proper JSON format."
+                            LAST_FEEDBACK="$feedback"
+                            log_warn "Cannot verify completion without structured cross-validation JSON - continuing to next iteration"
+                            continue
                         fi
 
                         local cross_verdict
