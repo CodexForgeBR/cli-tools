@@ -2087,7 +2087,9 @@ EOF
 IMPORTANT RULES:
 - Do NOT reference implementation details or code (that hasn't been written yet)
 - Only compare the plan, template, and constitution against the tasks document
-- Be thorough but fair - tasks.md doesn't need to match word-for-word
+- ANY contradiction between the plan and tasks.md MUST result in an INVALID verdict - there is ZERO tolerance for deviations from the plan
+- If contradictions_found > 0, the verdict MUST be INVALID
+- Tasks must implement EXACTLY what the plan specifies - correct files, correct parameters, correct values
 - Focus on whether the tasks would fully implement the plan and follow all template and constitution rules
 EOF
 
@@ -2168,8 +2170,8 @@ EOF
 \`\`\`
 
 VERDICT MEANINGS:
-- VALID: Tasks.md properly covers the plan AND follows all template rules AND respects all constitutional principles - proceed with implementation
-- INVALID: Tasks.md is missing requirements, contradicts the plan, violates template rules, OR violates constitutional principles - abort immediately
+- VALID: Tasks.md properly covers the plan AND has zero contradictions with the plan AND follows all template rules AND respects all constitutional principles - proceed with implementation
+- INVALID: Tasks.md is missing requirements, has any contradictions with the plan, contradicts the plan, violates template rules, OR violates constitutional principles - abort immediately
 
 BEGIN YOUR VALIDATION NOW.
 EOF
@@ -3653,6 +3655,40 @@ except:
 " 2>/dev/null || echo "PARSE_ERROR")
 
         log_info "Tasks validation verdict: $tasks_verdict"
+
+        # Programmatic enforcement: override VALID verdict if contradictions or missing requirements exist
+        if [[ "$tasks_verdict" == "VALID" ]]; then
+            local contradictions_count missing_req_count
+            contradictions_count=$(echo "$tasks_val_json" | python3 -c "
+import sys
+import json
+
+try:
+    data = json.load(sys.stdin)
+    tasks_val = data.get('RALPH_TASKS_VALIDATION', {})
+    print(tasks_val.get('contradictions_found', 0))
+except:
+    print(0)
+" 2>/dev/null || echo "0")
+
+            missing_req_count=$(echo "$tasks_val_json" | python3 -c "
+import sys
+import json
+
+try:
+    data = json.load(sys.stdin)
+    tasks_val = data.get('RALPH_TASKS_VALIDATION', {})
+    print(tasks_val.get('missing_requirements', 0))
+except:
+    print(0)
+" 2>/dev/null || echo "0")
+
+            if [[ "$contradictions_count" -gt 0 ]] || [[ "$missing_req_count" -gt 0 ]]; then
+                log_warning "AI returned VALID despite finding contradictions ($contradictions_count) or missing requirements ($missing_req_count) - overriding to INVALID"
+                tasks_verdict="INVALID"
+                log_info "Tasks validation verdict (overridden): $tasks_verdict"
+            fi
+        fi
 
         if [[ "$tasks_verdict" == "INVALID" ]]; then
             # Extract feedback

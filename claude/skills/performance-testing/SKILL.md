@@ -64,36 +64,57 @@ Use the Task tool with:
 - description: "Run performance tests"
 - prompt: "Run performance tests using the run-performance-tests.sh script.
 
-PREREQUISITES CHECK:
-Before running tests, check if the test type requires k6-exec extension:
-- If test type is 'high-volume', 'concurrent-update', or 'stress-full': Requires k6-exec
-- If k6-exec not found at /tmp/k6-exec (or auto-detected locations):
-  1. Install xk6: go install go.k6.io/xk6/cmd/xk6@latest
-  2. Build k6-exec: ~/go/bin/xk6 build --with github.com/grafana/xk6-exec@latest --output /tmp/k6-exec
-  3. Verify: ls -lh /tmp/k6-exec
-- The script will auto-detect k6-exec in common locations (/tmp/k6-exec, ~/.local/bin/k6-exec, /usr/local/bin/k6-exec)
+SCRIPT LOCATION: /Users/bccs/source/coreentities/performance-tests/run-performance-tests.sh
+
+HOW TO RUN ALL TESTS:
+Use `-t all` to run ALL test suites (banks.test.js + companies.test.js):
+  ./run-performance-tests.sh -t all -s smoke_test     # Run all suites with smoke scenario
+  ./run-performance-tests.sh -t all -s load_test      # Run all suites with load scenario
+  ./run-performance-tests.sh -t all -s stress_test    # Run all suites with stress scenario
+  ./run-performance-tests.sh -t all                   # Run all suites (default: smoke_test)
 
 IMPORTANT: Analyze the user's request to determine:
+
 1. MODE: Remote (--remote flag) vs Local (default, no flag)
    - If user mentions 'remote', 'servidor', or 'deployed API': Add --remote flag
-   - Default: No flag (local mode)
+   - Default: No flag (local mode, starts API locally)
 
 2. TEST TYPE (-t flag):
+   - If mentions 'all' or 'everything': Use -t all (runs banks + companies)
+   - If mentions 'banks': Use -t banks
+   - If mentions 'companies' or 'company': Use -t companies
    - If mentions 'concurrent updates' or 'optimistic concurrency': Use -t concurrent-update
    - If mentions 'high-volume' or 'throughput': Use -t high-volume
-   - If mentions 'stress-full' or 'both tests': Use -t stress-full
-   - Default: -t company (basic company test)
+   - If mentions 'stress-full' or 'both concurrent & high-volume': Use -t stress-full
+   - Default: -t all
 
 3. TEST SCENARIO (-s flag):
-   - If mentions '500 VUs' or 'stress': Use -s stress_to_500vu
-   - If mentions 'progressive' or 'ramp': Use -s high_volume_ramp_to_500vu (for high-volume) or concurrent_ramp_to_100vu (for concurrent)
-   - Default: smoke_test
+   - smoke_test (default) - Quick validation, ~30 seconds per suite
+   - load_test - Moderate load testing
+   - stress_test - High load, find breaking points
+   - spike_test - Sudden load spikes
+   - For concurrent-update tests: concurrent_ramp_to_100vu, stress_to_500vu, etc.
+   - For high-volume tests: high_volume_ramp_to_500vu, sustained_1000_events_per_sec, etc.
 
-EXAMPLES:
-- 'Run remote perf test' → ./run-performance-tests.sh --remote -t company -s smoke_test
-- 'Run concurrent perf tests' → ./run-performance-tests.sh -t concurrent-update -s concurrent_ramp_to_100vu
-- 'Stress test event sourcing against servidor' → ./run-performance-tests.sh --remote -t stress-full
-- 'Test high-volume with 500 VUs remotely' → ./run-performance-tests.sh --remote -t high-volume -s high_volume_ramp_to_500vu
+COMMON USER REQUEST PATTERNS:
+- "Run all perf tests" → ./run-performance-tests.sh -t all -s smoke_test
+- "Run ALL performance tests" → ./run-performance-tests.sh -t all -s smoke_test
+- "Run all tests with load scenario" → ./run-performance-tests.sh -t all -s load_test
+- "Test everything" → ./run-performance-tests.sh -t all -s smoke_test
+- "Run banks and companies tests" → ./run-performance-tests.sh -t all
+- "Run remote perf test" → ./run-performance-tests.sh --remote -t all -s smoke_test
+- "Run concurrent perf tests" → ./run-performance-tests.sh -t concurrent-update
+- "Stress test event sourcing" → ./run-performance-tests.sh -t stress-full
+
+AVAILABLE TEST TYPES:
+- all: Runs banks.test.js + companies.test.js
+- banks: Runs only banks.test.js
+- companies (or company): Runs only companies.test.js
+- concurrent-update: Event sourcing concurrent update tests
+- high-volume: Event sourcing high-volume throughput tests
+- stress-full: Both concurrent-update AND high-volume tests
+- projection: Projection performance tests
+- concurrent-race: Concurrent same-entity race condition tests
 
 After running, analyze results for regressions, compare with baseline if available, and generate a comprehensive report."
 ```
@@ -413,46 +434,64 @@ This skill complements:
 
 ## Quick Reference: All Supported Variations
 
+### Running ALL Tests (Most Common)
+```
+"Run all perf tests"                   → ./run-performance-tests.sh -t all
+"Run ALL performance tests"            → ./run-performance-tests.sh -t all -s smoke_test
+"Test everything"                      → ./run-performance-tests.sh -t all
+"Run all tests with load scenario"    → ./run-performance-tests.sh -t all -s load_test
+"Run all tests with stress"           → ./run-performance-tests.sh -t all -s stress_test
+"Test banks and companies"             → ./run-performance-tests.sh -t all
+```
+
+**CRITICAL**: When user says "ALL" or "all perf tests", use `-t all` (NOT just default)!
+
 ### Local Mode (Default)
 ```
-"Run perf test"
-"Run performance tests"
-"Check performance"
-"Run concurrent perf tests"
-"Run high-volume tests"
-"Stress test event sourcing"
+"Run perf test"                        → ./run-performance-tests.sh (default: -t all -s smoke_test)
+"Run performance tests"                → ./run-performance-tests.sh -t all
+"Check performance"                    → ./run-performance-tests.sh -t all
+"Run banks tests"                      → ./run-performance-tests.sh -t banks
+"Run companies tests"                  → ./run-performance-tests.sh -t companies
+"Run concurrent perf tests"            → ./run-performance-tests.sh -t concurrent-update
+"Run high-volume tests"                → ./run-performance-tests.sh -t high-volume
+"Stress test event sourcing"           → ./run-performance-tests.sh -t stress-full
 ```
 
 ### Remote Mode (Servidor)
 ```
-"Run remote perf test"
-"Run remote performance test"
-"Test servidor performance"
-"Perf test against servidor"
-"Run remote concurrent perf tests"
-"Remote high-volume test"
-"Stress test event sourcing against servidor"
+"Run all remote perf tests"            → ./run-performance-tests.sh --remote -t all
+"Run remote perf test"                 → ./run-performance-tests.sh --remote -t all
+"Run remote performance test"          → ./run-performance-tests.sh --remote -t all
+"Test servidor performance"            → ./run-performance-tests.sh --remote -t all
+"Run remote concurrent perf tests"     → ./run-performance-tests.sh --remote -t concurrent-update
+"Remote high-volume test"              → ./run-performance-tests.sh --remote -t high-volume
+"Stress test event sourcing against servidor" → ./run-performance-tests.sh --remote -t stress-full
 ```
 
 ### Specific Test Types
 ```
-"Run concurrent-update test"           → Tests optimistic concurrency
-"Run high-volume test"                 → Tests throughput & projection lag
-"Run stress-full test"                 → Runs both tests
-"Test concurrent updates"              → Concurrent-update
-"Test throughput"                      → High-volume
-"Validate projection lag"              → High-volume
+"Run concurrent-update test"           → -t concurrent-update (optimistic concurrency)
+"Run high-volume test"                 → -t high-volume (throughput & projection lag)
+"Run stress-full test"                 → -t stress-full (both concurrent & high-volume)
+"Test concurrent updates"              → -t concurrent-update
+"Test throughput"                      → -t high-volume
+"Validate projection lag"              → -t high-volume
 ```
 
 ### With Scenarios
 ```
-"Run concurrent test with 500 VUs"     → concurrent-update with stress_to_500vu
-"Test high-volume progressive load"    → high-volume with high_volume_ramp_to_500vu
-"Stress test with 500 users"          → stress-full
+"Run all tests with load"              → ./run-performance-tests.sh -t all -s load_test
+"Run concurrent test with 500 VUs"     → ./run-performance-tests.sh -t concurrent-update -s stress_to_500vu
+"Test high-volume progressive load"    → ./run-performance-tests.sh -t high-volume -s high_volume_ramp_to_500vu
+"Stress test with 500 users"           → ./run-performance-tests.sh -t stress-full
 ```
 
 ### Combined Examples
 ```
+"Run all remote perf tests"
+→ ./run-performance-tests.sh --remote -t all
+
 "Run remote concurrent perf tests"
 → ./run-performance-tests.sh --remote -t concurrent-update
 
@@ -461,4 +500,7 @@ This skill complements:
 
 "Stress test event sourcing against servidor"
 → ./run-performance-tests.sh --remote -t stress-full
+
+"Run ALL tests with load scenario locally"
+→ ./run-performance-tests.sh -t all -s load_test
 ```
