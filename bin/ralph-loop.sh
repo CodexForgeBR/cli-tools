@@ -1528,6 +1528,65 @@ The implementation model LIES about task counts, task text, and completion statu
 TASKS FILE: $TASKS_FILE
 
 ═══════════════════════════════════════════════════════════════════════════════
+MANDATORY SECOND STEP - SCOPE CREEP DETECTION (DO THIS IMMEDIATELY)
+═══════════════════════════════════════════════════════════════════════════════
+
+You have read the tasks file. NOW verify that ALL changed files map to tasks.
+
+1. Run BOTH commands:
+   git status
+   git diff --name-only HEAD~5
+
+2. Extract EVERY file path that was:
+   - Added (A, ??)
+   - Modified (M)
+   - New directories (untracked)
+
+3. For EACH file/directory, ask: "Which task in tasks.md requested this?"
+   - If you can cite a task ID → OK
+   - If NO task mentions this file/directory → SCOPE VIOLATION
+
+4. SCOPE VIOLATION = IMMEDIATE verdict: NEEDS_MORE_WORK
+   - Do NOT investigate further
+   - Do NOT accept excuses ("I added it because...")
+   - Do NOT let model justify scope expansion
+   - The task list is the ONLY source of truth
+
+EXAMPLES OF SCOPE CREEP (ALL ARE VIOLATIONS):
+
+❌ Task: "Migrate CompanyCode to [GenerateValueObject]"
+   git status shows: Bank/BankCode.cs, Bank/BankIspbCode.cs
+   → Bank was NEVER in tasks.md → SCOPE VIOLATION
+
+❌ Task: "Add login button to header"
+   git status shows: src/components/Dashboard.tsx modified
+   → Dashboard was not in task scope → SCOPE VIOLATION
+
+❌ Task: "Fix bug in UserService"
+   git status shows: new file src/services/CacheService.ts
+   → CacheService creation was not requested → SCOPE VIOLATION
+
+THE MODEL WILL TRY THESE EXCUSES - REJECT ALL:
+- "I added Bank/ because it uses the same pattern" → SCOPE VIOLATION
+- "Dashboard needed updating too" → SCOPE VIOLATION
+- "CacheService improves performance" → SCOPE VIOLATION
+- "It was a natural extension" → SCOPE VIOLATION
+- "The architecture required it" → SCOPE VIOLATION
+
+THE TASK LIST IS LAW. ADDITIONS NOT IN TASKS = SCOPE VIOLATION.
+
+REPORT IN JSON:
+"scope_analysis": {
+  "files_changed": [<list all files from git>],
+  "files_mapped_to_tasks": [{"file": "...", "task_id": "T0XX"}],
+  "scope_violations": [{"file": "...", "reason": "No task mentions Bank/"}],
+  "verdict": "PASS|SCOPE_VIOLATION"
+}
+
+If scope_violations > 0 → verdict = NEEDS_MORE_WORK (do not proceed further)
+═══════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════
 WARNING: THE CLAIMS BELOW MAY BE COMPLETE FABRICATIONS
 ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1896,6 +1955,12 @@ OUTPUT FORMAT - You MUST output this exact JSON format at the end (the script pa
       "lies_detected": <number of false claims>,
       "remaining_unchecked": <number of tasks still [ ]>,
       "confirmed_blocked": <number of tasks genuinely blocked>
+    },
+    "scope_analysis": {
+      "files_changed": ["list of all files from git status/diff"],
+      "files_mapped_to_tasks": [{"file": "path/to/file", "task_id": "T0XX"}],
+      "scope_violations": [{"file": "path/to/file", "reason": "No task mentions this file/directory"}],
+      "verdict": "PASS|SCOPE_VIOLATION"
     },
     "file_sampling": {
       "total_test_files": <N>,
@@ -3692,7 +3757,7 @@ PYTHON_EOF
 
     if [[ "$initial_unchecked" -eq 0 ]]; then
         # Don't exit early when resuming an incomplete phase - validator must confirm
-        if [[ $resuming -eq 1 && ("$CURRENT_PHASE" == "implementation" || "$CURRENT_PHASE" == "validation") ]]; then
+        if [[ $resuming -eq 1 && ("$CURRENT_PHASE" == "implementation" || "$CURRENT_PHASE" == "validation" || "$CURRENT_PHASE" == "cross_validation" || "$CURRENT_PHASE" == "final_plan_validation") ]]; then
             log_warn "All tasks appear checked, but session was interrupted during $CURRENT_PHASE phase"
             log_info "Continuing to let validator verify the work..."
         else
