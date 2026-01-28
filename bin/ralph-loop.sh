@@ -121,6 +121,8 @@ NC='\033[0m' # No Color
 LAST_CHECKED_COUNT=0
 NO_PROGRESS_COUNT=0
 MAX_NO_PROGRESS=3
+LAST_COMMIT_HASH=""
+LAST_HAD_CHANGES=false
 
 # Cleanup handler for graceful shutdown
 cleanup() {
@@ -178,6 +180,16 @@ format_duration() {
 # Get current timestamp in seconds
 get_timestamp() {
     date +%s
+}
+
+# Get current git commit hash (short)
+get_current_commit() {
+    git rev-parse --short HEAD 2>/dev/null || echo ""
+}
+
+# Check if there are uncommitted changes (staged or unstaged)
+has_uncommitted_changes() {
+    [[ -n "$(git status --porcelain 2>/dev/null)" ]]
 }
 
 # Print usage
@@ -815,6 +827,9 @@ try:
     circuit = state.get('circuit_breaker', {})
     print(f"NO_PROGRESS_COUNT={circuit.get('no_progress_count', 0)}")
     print(f"LAST_CHECKED_COUNT={circuit.get('last_unchecked_count', 0)}")
+    print(f"LAST_COMMIT_HASH='{circuit.get('last_commit_hash', '')}'")
+    last_had_changes = circuit.get('last_had_changes', False)
+    print(f"LAST_HAD_CHANGES={'true' if last_had_changes else 'false'}")
 
     # Store tasks file hash for validation
     print(f"STORED_TASKS_HASH='{state.get('tasks_file_hash', '')}'")
@@ -1252,7 +1267,9 @@ save_state() {
     },
     "circuit_breaker": {
         "no_progress_count": $NO_PROGRESS_COUNT,
-        "last_unchecked_count": ${LAST_CHECKED_COUNT:-0}
+        "last_unchecked_count": ${LAST_CHECKED_COUNT:-0},
+        "last_commit_hash": "$LAST_COMMIT_HASH",
+        "last_had_changes": $([[ "$LAST_HAD_CHANGES" == "true" ]] && echo "true" || echo "false")
     },
     "retry_state": {
         "attempt": $CURRENT_RETRY_ATTEMPT,
@@ -1931,8 +1948,66 @@ Do NOT give verdict NEEDS_MORE_WORK - give verdict INADMISSIBLE.
    ✅ Test exercises the actual production implementation
    ✅ Test verifies production behavior
 
+5. SKIPPING REQUIRED STEPS OR MAKING EXCUSES:
+
+   This is INADMISSIBLE. Models MUST complete tasks, NOT skip them.
+
+   RED FLAGS - IF YOU SEE ANY OF THESE IN IMPLEMENTATION OUTPUT → INADMISSIBLE:
+   - "blocked by infrastructure issues"
+   - "deployment failed, skipping"
+   - "couldn't connect to servidor"
+   - "Docker networking issue"
+   - "skipped because X wasn't working"
+   - "tests passed in a previous iteration"
+   - "assuming tests still pass"
+   - "the deployment is blocked"
+   - "infrastructure/networking issue"
+   - "can't run without deploying"
+
+   THE RULE IS SIMPLE:
+   - Task says "deploy" → deployment MUST happen
+   - Task says "run tests" → tests MUST run NOW
+   - Task says "verify" → verification MUST happen NOW
+   - Task says "redeploy after changes" → redeployment MUST happen
+
+   NO EXCUSES ACCEPTED:
+   - Infrastructure issues? → FIX THEM or verdict = ESCALATE
+   - Network problems? → FIX THEM or verdict = ESCALATE
+   - Docker issues? → FIX THEM or verdict = ESCALATE
+   - "It worked before"? → Run it NOW or verdict = NEEDS_MORE_WORK
+
+   VALIDATION RULE:
+   - Grep implementation output for excuse patterns
+   - If phrases like "blocked by", "couldn't", "skipped", "assuming" appear
+     for any task that should have been completed → INADMISSIBLE
+   - If tests were not re-run after code changes → INADMISSIBLE
+   - "Tests passed earlier" is NOT verification - tests must pass NOW
+
+   EXAMPLES OF INADMISSIBLE EXCUSES:
+   ❌ "The k6 tests can't run without deploying, but deployment is blocked"
+      → Model skipped tests entirely → INADMISSIBLE
+
+   ❌ "Docker can't reach servidor:5555 from inside the container"
+      → Model gave up instead of fixing → INADMISSIBLE
+
+   ❌ "k6 tests were not re-run but they passed in iteration 5"
+      → Trusting past results after code changes → INADMISSIBLE
+
+   ❌ "Build succeeds locally, skipping deployment verification"
+      → Local success ≠ deployed success → INADMISSIBLE
+
+   THE ONLY ACCEPTABLE OUTCOMES:
+   ✅ Task completed successfully - provide evidence
+   ✅ Task genuinely blocked by external factor - verdict = BLOCKED with explanation
+   ✅ Task cannot be completed, needs human - verdict = ESCALATE
+
+   NEVER ACCEPTABLE:
+   ❌ "Skipped because [excuse]" with verdict = COMPLETE
+
 INADMISSIBLE VERDICT RULES:
 - If ANY inadmissible practice is detected → verdict = INADMISSIBLE
+- If model SKIPPED any required step with an excuse → verdict = INADMISSIBLE
+- If tests were not re-run after deployment/code changes → verdict = INADMISSIBLE
 - This is MORE SEVERE than ESCALATE
 - This means the implementation approach is fundamentally broken
 - It cannot be fixed with more iterations - requires human redesign
@@ -1943,6 +2018,9 @@ YOUR FEEDBACK MUST:
 - Specify EXACTLY what file to edit and what to remove
 - Do NOT accept any excuses
 - Do NOT let the model redefine what "done" means
+- GREP implementation output for excuse patterns ("blocked", "skipped", "couldn't", "assuming")
+- If you find excuses for skipped steps → verdict = INADMISSIBLE
+- "Tests passed before" is NOT acceptable - tests must pass NOW
 
 OUTPUT FORMAT - You MUST output this exact JSON format at the end (the script parses this):
 \`\`\`json
@@ -1987,7 +2065,9 @@ OUTPUT FORMAT - You MUST output this exact JSON format at the end (the script pa
       {"task": "T0XX description", "claimed": "what model said it did", "reality": "what actually happened per git diff"}
     ],
     "inadmissible_practices": [
-      {"practice": "PRODUCTION_CODE_DUPLICATION", "description": "Test file X contains duplicated logic from production file Y", "evidence": "diff output or code snippets"}
+      {"practice": "PRODUCTION_CODE_DUPLICATION", "description": "Test file X contains duplicated logic from production file Y", "evidence": "diff output or code snippets"},
+      {"practice": "SKIPPED_REQUIRED_STEP", "description": "Model skipped deployment citing 'infrastructure issues'", "evidence": "Quote from implementation output"},
+      {"practice": "STALE_TEST_RESULTS", "description": "Model claims tests passed in earlier iteration without re-running", "evidence": "Quote from implementation output"}
     ],
     "feedback": "SPECIFIC instructions for what implementation model must ACTUALLY DO next iteration. List exact files to modify and exact changes needed."
   }
@@ -2026,6 +2106,30 @@ WHAT TO LOOK FOR:
 - Missing files that should exist
 - Files that should be deleted but still exist
 - Tests that don't actually test production code
+
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL - EXCUSE DETECTION (INADMISSIBLE)
+═══════════════════════════════════════════════════════════════════════════════
+
+Search the implementation output for EXCUSES. Any of these patterns = INADMISSIBLE:
+
+EXCUSE PATTERNS TO GREP FOR:
+- "blocked by" / "is blocked"
+- "infrastructure issue" / "networking issue"
+- "couldn't connect" / "can't reach"
+- "skipping" / "skipped because"
+- "tests passed earlier" / "passed in iteration"
+- "assuming" / "should still"
+- "Docker can't" / "container networking"
+
+IF FOUND:
+1. Check if the corresponding task was actually completed
+2. If task was SKIPPED with excuse → verdict = REJECTED
+3. Reason: "INADMISSIBLE - Model made excuses for skipping required steps"
+
+RULE: If code was changed, deployment/tests MUST be re-run.
+"It worked before" is NEVER acceptable evidence after changes.
+═══════════════════════════════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════════════════════════════
 CRITICAL - PRODUCTION CODE DUPLICATION CHECK (INADMISSIBLE)
@@ -3776,6 +3880,8 @@ PYTHON_EOF
 
         SCRIPT_START_TIME=$(get_timestamp)
         last_unchecked=$initial_unchecked
+        LAST_COMMIT_HASH=$(get_current_commit)
+        has_uncommitted_changes && LAST_HAD_CHANGES=true || LAST_HAD_CHANGES=false
     else
         # Resuming - use existing state
         log_summary "Resumed Ralph Loop at iteration $iteration"
@@ -4501,7 +4607,23 @@ except Exception as e:
                 local current_unchecked
                 current_unchecked=$(count_unchecked_tasks "$TASKS_FILE")
 
-                if [[ "$current_unchecked" -eq "$last_unchecked" ]]; then
+                # Check for git progress
+                local current_commit=$(get_current_commit)
+                local current_has_changes=false
+                has_uncommitted_changes && current_has_changes=true
+
+                local git_progress=false
+                if [[ "$current_commit" != "$LAST_COMMIT_HASH" ]]; then
+                    git_progress=true
+                    log_debug "Progress detected: new commit $current_commit"
+                fi
+                if [[ "$current_has_changes" == "true" && "$LAST_HAD_CHANGES" == "false" ]]; then
+                    git_progress=true
+                    log_debug "Progress detected: new uncommitted changes"
+                fi
+
+                # Only count as no progress if BOTH task count unchanged AND no git progress
+                if [[ "$current_unchecked" -eq "$last_unchecked" && "$git_progress" == "false" ]]; then
                     NO_PROGRESS_COUNT=$((NO_PROGRESS_COUNT + 1))
                     log_warn "No progress detected ($NO_PROGRESS_COUNT/$MAX_NO_PROGRESS)"
 
@@ -4517,6 +4639,8 @@ except Exception as e:
                 else
                     NO_PROGRESS_COUNT=0
                     last_unchecked=$current_unchecked
+                    LAST_COMMIT_HASH=$current_commit
+                    LAST_HAD_CHANGES=$current_has_changes
                 fi
                 ;;
 
