@@ -238,11 +238,12 @@ parse_schedule_time() {
 
         # If time already passed today, schedule for tomorrow
         if [[ -n "$epoch" && $epoch -le $now_epoch ]]; then
+            local tomorrow
             if [[ "$flavor" == "gnu" ]]; then
-                epoch=$(date -d "$today $input:00 +1 day" +%s 2>/dev/null)
+                tomorrow=$(date -d "+1 day" +%Y-%m-%d)
+                epoch=$(date -d "$tomorrow $input:00" +%s 2>/dev/null)
                 SCHEDULE_TARGET_HUMAN="tomorrow at $input"
             else
-                local tomorrow
                 tomorrow=$(date -v+1d +%Y-%m-%d)
                 epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$tomorrow $input:00" +%s 2>/dev/null)
                 SCHEDULE_TARGET_HUMAN="tomorrow at $input"
