@@ -279,7 +279,7 @@ parse_schedule_time() {
         exit 1
     fi
 
-    echo "$epoch"
+    SCHEDULE_TARGET_EPOCH="$epoch"
 }
 
 # Wait until scheduled time
@@ -325,8 +325,16 @@ wait_until_scheduled_time() {
             sleep_interval=10  # 10 second intervals when >1 min away
         fi
 
-        # Print countdown (in-place update)
-        printf "\r⏳ Time until start: %-20s" "$(format_duration $remaining)"
+        # Print absolute target time (in-place update)
+        local target_time
+        local flavor
+        flavor=$(detect_date_flavor)
+        if [[ "$flavor" == "gnu" ]]; then
+            target_time=$(date -d "@$target_epoch" '+%Y-%m-%d %H:%M:%S')
+        else
+            target_time=$(date -r "$target_epoch" '+%Y-%m-%d %H:%M:%S')
+        fi
+        printf "\r⏳ Waiting until: %s" "$target_time"
 
         sleep $sleep_interval
 
@@ -4101,7 +4109,7 @@ PYTHON_EOF
     # Parse schedule time if provided (for new sessions only)
     if [[ -n "$SCHEDULE_INPUT" && $resuming -eq 0 ]]; then
         log_info "Parsing scheduled start time: $SCHEDULE_INPUT"
-        SCHEDULE_TARGET_EPOCH=$(parse_schedule_time "$SCHEDULE_INPUT")
+        parse_schedule_time "$SCHEDULE_INPUT"
 
         # Validate not in the past (for full datetime)
         local now_epoch
