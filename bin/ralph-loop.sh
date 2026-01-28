@@ -74,6 +74,11 @@ GITHUB_ISSUE=""                 # GitHub issue URL or number (optional)
 LEARNINGS_FILE=""           # Path to learnings file (default: .ralph-loop/learnings.md)
 ENABLE_LEARNINGS=1          # ON by default
 
+# Scheduling configuration
+SCHEDULE_INPUT=""           # Raw user input for --start-at
+SCHEDULE_TARGET_EPOCH=""    # Parsed target time in epoch seconds
+SCHEDULE_TARGET_HUMAN=""    # Human-readable target time for display
+
 # State tracking for resume
 CURRENT_PHASE=""
 LAST_FEEDBACK=""
@@ -187,6 +192,154 @@ get_current_commit() {
     git rev-parse --short HEAD 2>/dev/null || echo ""
 }
 
+# Detect date command flavor (gnu or bsd)
+detect_date_flavor() {
+    if date --version >/dev/null 2>&1; then
+        echo "gnu"
+    else
+        echo "bsd"
+    fi
+}
+
+# Parse schedule time into epoch timestamp
+# Arguments: $1 - date/time string in format: YYYY-MM-DD, HH:MM, "YYYY-MM-DD HH:MM", or YYYY-MM-DDTHH:MM
+# Returns: epoch timestamp
+# Side effects: Sets SCHEDULE_TARGET_HUMAN global variable
+parse_schedule_time() {
+    local input="$1"
+    local flavor
+    flavor=$(detect_date_flavor)
+    local epoch=""
+
+    # Current time for reference
+    local now_epoch
+    now_epoch=$(date +%s)
+
+    # Try to parse different formats
+    if [[ "$input" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+        # Date only: YYYY-MM-DD (start at 00:00:00)
+        if [[ "$flavor" == "gnu" ]]; then
+            epoch=$(date -d "$input 00:00:00" +%s 2>/dev/null)
+        else
+            epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$input 00:00:00" +%s 2>/dev/null)
+        fi
+        SCHEDULE_TARGET_HUMAN="$input at 00:00:00"
+
+    elif [[ "$input" =~ ^[0-9]{1,2}:[0-9]{2}$ ]]; then
+        # Time only: HH:MM (assume today, or tomorrow if time passed)
+        local today
+        today=$(date +%Y-%m-%d)
+
+        if [[ "$flavor" == "gnu" ]]; then
+            epoch=$(date -d "$today $input:00" +%s 2>/dev/null)
+        else
+            epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$today $input:00" +%s 2>/dev/null)
+        fi
+
+        # If time already passed today, schedule for tomorrow
+        if [[ -n "$epoch" && $epoch -le $now_epoch ]]; then
+            if [[ "$flavor" == "gnu" ]]; then
+                epoch=$(date -d "$today $input:00 +1 day" +%s 2>/dev/null)
+                SCHEDULE_TARGET_HUMAN="tomorrow at $input"
+            else
+                local tomorrow
+                tomorrow=$(date -v+1d +%Y-%m-%d)
+                epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$tomorrow $input:00" +%s 2>/dev/null)
+                SCHEDULE_TARGET_HUMAN="tomorrow at $input"
+            fi
+        else
+            SCHEDULE_TARGET_HUMAN="today at $input"
+        fi
+
+    elif [[ "$input" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}[T\ ][0-9]{1,2}:[0-9]{2}(:[0-9]{2})?$ ]]; then
+        # Date + time: YYYY-MM-DD HH:MM or YYYY-MM-DDTHH:MM
+        local normalized
+        normalized="${input/T/ }"  # Convert T to space
+
+        # Add seconds if not present
+        if [[ ! "$normalized" =~ :[0-9]{2}$ ]]; then
+            normalized="$normalized:00"
+        fi
+
+        if [[ "$flavor" == "gnu" ]]; then
+            epoch=$(date -d "$normalized" +%s 2>/dev/null)
+        else
+            epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$normalized" +%s 2>/dev/null)
+        fi
+        SCHEDULE_TARGET_HUMAN="$normalized"
+
+    else
+        log_error "Invalid date/time format: $input"
+        log_error "Supported formats: YYYY-MM-DD, HH:MM, 'YYYY-MM-DD HH:MM', YYYY-MM-DDTHH:MM"
+        exit 1
+    fi
+
+    if [[ -z "$epoch" ]]; then
+        log_error "Failed to parse date/time: $input"
+        exit 1
+    fi
+
+    echo "$epoch"
+}
+
+# Wait until scheduled time
+# Arguments: $1 - target epoch timestamp
+wait_until_scheduled_time() {
+    local target_epoch=$1
+    local now_epoch
+    now_epoch=$(date +%s)
+    local remaining=$((target_epoch - now_epoch))
+
+    if [[ $remaining -le 0 ]]; then
+        log_info "Scheduled time has passed, proceeding immediately"
+        return
+    fi
+
+    # Update phase to waiting
+    CURRENT_PHASE="waiting_for_schedule"
+    save_state
+
+    # Show banner
+    echo ""
+    log_info "════════════════════════════════════════════════════════════════"
+    log_info "⏰ WAITING FOR SCHEDULED TIME"
+    log_info "════════════════════════════════════════════════════════════════"
+    log_info "Target time: $SCHEDULE_TARGET_HUMAN"
+    log_info "Current time: $(date '+%Y-%m-%d %H:%M:%S')"
+    log_info ""
+    log_info "Implementation will begin in: $(format_duration $remaining)"
+    log_info ""
+    log_info "Press Ctrl+C to pause. Resume later with --resume"
+    log_info "════════════════════════════════════════════════════════════════"
+    echo ""
+
+    # Countdown loop with adaptive sleep intervals
+    while [[ $remaining -gt 0 ]]; do
+        # Adaptive sleep: longer intervals when far away, shorter when close
+        local sleep_interval=1
+        if [[ $remaining -gt 3600 ]]; then
+            sleep_interval=60  # 1 minute intervals when >1 hour away
+        elif [[ $remaining -gt 600 ]]; then
+            sleep_interval=30  # 30 second intervals when >10 min away
+        elif [[ $remaining -gt 60 ]]; then
+            sleep_interval=10  # 10 second intervals when >1 min away
+        fi
+
+        # Print countdown (in-place update)
+        printf "\r⏳ Time until start: %-20s" "$(format_duration $remaining)"
+
+        sleep $sleep_interval
+
+        now_epoch=$(date +%s)
+        remaining=$((target_epoch - now_epoch))
+    done
+
+    # Clear countdown line and show start message
+    printf "\r%-80s\r" ""  # Clear the line
+    log_info "✅ Scheduled time reached! Starting implementation loop..."
+    echo ""
+}
+
 # Check if there are uncommitted changes (staged or unstaged)
 has_uncommitted_changes() {
     [[ -n "$(git status --porcelain 2>/dev/null)" ]]
@@ -221,6 +374,8 @@ Options:
   --final-plan-validation-model M    Model for final plan validation (default: same as cross-validation)
   --tasks-validation-ai AI           AI for tasks validation (default: same as implementation)
   --tasks-validation-model M         Model for tasks validation (default: same as implementation)
+  --start-at DATETIME        Schedule when implementation begins (validation runs immediately)
+                             Formats: YYYY-MM-DD, HH:MM, "YYYY-MM-DD HH:MM", YYYY-MM-DDTHH:MM
   --resume                   Resume from last interrupted session
   --resume-force             Resume even if tasks.md has changed
   --clean                    Start fresh, delete existing .ralph-loop state
@@ -519,6 +674,14 @@ parse_args() {
             --no-learnings)
                 ENABLE_LEARNINGS=0
                 shift
+                ;;
+            --start-at|--at)
+                if [[ -z "$2" ]]; then
+                    log_error "Missing value for --start-at"
+                    exit 1
+                fi
+                SCHEDULE_INPUT="$2"
+                shift 2
                 ;;
             -h|--help)
                 usage
@@ -856,6 +1019,12 @@ try:
     # Inadmissible count (defaults to 0 for backward compatibility)
     print(f"INADMISSIBLE_COUNT={state.get('inadmissible_count', 0)}")
 
+    # Schedule data (defaults for backward compatibility)
+    schedule = state.get('schedule', {})
+    print(f"STORED_SCHEDULE_ENABLED={1 if schedule.get('enabled', False) else 0}")
+    print(f"STORED_SCHEDULE_TARGET_EPOCH={schedule.get('target_epoch', 0)}")
+    print(f"STORED_SCHEDULE_TARGET_HUMAN='{schedule.get('target_human', '')}'")
+
     sys.exit(0)
 except Exception as e:
     print(f"# Error loading state: {e}", file=sys.stderr)
@@ -882,6 +1051,12 @@ PYTHON_EOF
     # Decode base64 feedback
     if [[ -n "$LAST_FEEDBACK_B64" ]]; then
         LAST_FEEDBACK=$(echo "$LAST_FEEDBACK_B64" | base64 -d)
+    fi
+
+    # Restore schedule data if enabled
+    if [[ "$STORED_SCHEDULE_ENABLED" -eq 1 ]]; then
+        SCHEDULE_TARGET_EPOCH="$STORED_SCHEDULE_TARGET_EPOCH"
+        SCHEDULE_TARGET_HUMAN="$STORED_SCHEDULE_TARGET_HUMAN"
     fi
 
     return 0
@@ -1264,6 +1439,11 @@ save_state() {
         "ai": "$TASKS_VAL_AI",
         "model": "$TASKS_VAL_MODEL",
         "available": $([[ "$TASKS_VAL_AI_AVAILABLE" -eq 1 ]] && echo "true" || echo "false")
+    },
+    "schedule": {
+        "enabled": $([[ -n "$SCHEDULE_TARGET_EPOCH" ]] && echo "true" || echo "false"),
+        "target_epoch": ${SCHEDULE_TARGET_EPOCH:-0},
+        "target_human": "$SCHEDULE_TARGET_HUMAN"
     },
     "circuit_breaker": {
         "no_progress_count": $NO_PROGRESS_COUNT,
@@ -3918,6 +4098,23 @@ PYTHON_EOF
 
     validate_models_for_ai
 
+    # Parse schedule time if provided (for new sessions only)
+    if [[ -n "$SCHEDULE_INPUT" && $resuming -eq 0 ]]; then
+        log_info "Parsing scheduled start time: $SCHEDULE_INPUT"
+        SCHEDULE_TARGET_EPOCH=$(parse_schedule_time "$SCHEDULE_INPUT")
+
+        # Validate not in the past (for full datetime)
+        local now_epoch
+        now_epoch=$(date +%s)
+        if [[ $SCHEDULE_TARGET_EPOCH -le $now_epoch ]]; then
+            log_warn "Scheduled time is in the past, proceeding immediately"
+            SCHEDULE_TARGET_EPOCH=""
+            SCHEDULE_TARGET_HUMAN=""
+        else
+            log_info "Implementation will start at: $SCHEDULE_TARGET_HUMAN"
+        fi
+    fi
+
     # Count initial tasks
     local initial_unchecked
     local initial_checked
@@ -4184,6 +4381,26 @@ except Exception as e:
         fi
 
         log_success "Tasks validation VALID: tasks.md properly implements the original plan"
+    fi
+
+    # Handle scheduled start time
+    if [[ -n "$SCHEDULE_TARGET_EPOCH" ]]; then
+        # Check if resuming during waiting phase
+        if [[ $resuming -eq 1 && "$CURRENT_PHASE" == "waiting_for_schedule" ]]; then
+            local now_epoch
+            now_epoch=$(date +%s)
+
+            if [[ $SCHEDULE_TARGET_EPOCH -le $now_epoch ]]; then
+                log_info "Scheduled time has passed during interruption, proceeding immediately"
+            else
+                log_info "Resuming wait for scheduled time: $SCHEDULE_TARGET_HUMAN"
+                wait_until_scheduled_time "$SCHEDULE_TARGET_EPOCH"
+            fi
+        elif [[ $resuming -eq 0 ]]; then
+            # Fresh start - wait for scheduled time
+            wait_until_scheduled_time "$SCHEDULE_TARGET_EPOCH"
+        fi
+        # If resuming but not in waiting phase, skip wait (already past scheduled time)
     fi
 
     while [[ $iteration -lt $MAX_ITERATIONS ]]; do
