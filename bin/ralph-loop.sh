@@ -1675,6 +1675,19 @@ MANDATORY FILE SAMPLING PROTOCOL - YOU CANNOT SKIP THIS
 BEFORE you can declare COMPLETE, you MUST perform this sampling protocol.
 Skipping this = automatic NEEDS_MORE_WORK.
 
+STEP 0: DETECT TEST FILES
+Run: git diff --name-only --diff-filter=ACM | grep -E "\.(spec|test)\.[jt]sx?$|\.tests?\.[jt]sx?$|_test\.(go|py|rs)$|Tests/.*\.(cs|fs)$"
+
+If this returns ZERO files:
+- Check if ANY task in tasks.md involves testing (search for "test", "unit test", "E2E", etc.)
+- If NO test-related tasks exist: Tests are optional for this solution
+  - Report: "file_sampling": { "total_test_files": 0, "reason": "no_test_tasks" }
+  - Skip Steps 1-5 and proceed to verdict
+- If test-related tasks DO exist but no test files: This is a LIE - tests were required but not written
+  - Verdict: NEEDS_MORE_WORK
+
+If test files exist: Continue with Steps 1-5 as written below.
+
 STEP 1: LIST ALL FILES
 Run: git diff --name-only --diff-filter=ACM
 This gives you every file that was added, copied, or modified.
@@ -1714,6 +1727,7 @@ Your RALPH_VALIDATION JSON must include a new field:
 
 "file_sampling": {
   "total_test_files": <N>,
+  "reason": "no_test_tasks",  // OPTIONAL: Only if no test files and no test tasks
   "files_inspected": <N>,
   "files_passed": <N>,
   "files_suspect": <N>,
@@ -1977,9 +1991,18 @@ These are AUTOMATIC REJECTIONS regardless of other findings.
 ═══════════════════════════════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════════════════════════════
-MANDATORY: YOU MUST OPEN AND READ TEST FILES
+MANDATORY: YOU MUST OPEN AND READ TEST FILES (IF THEY EXIST)
 ═══════════════════════════════════════════════════════════════════════════════
 
+FIRST: Check if test files exist in the diff:
+Run: git diff --name-only --diff-filter=ACM | grep -E "\.(spec|test)\.[jt]sx?$"
+
+If ZERO test files AND no test-related tasks in tasks.md:
+- This is valid - tests are optional
+- Include in JSON: "files_actually_read": [], "reason": "no_test_files_or_tasks"
+- Proceed with other verification steps
+
+If test files exist (even one):
 Do NOT just run git diff --stat and check file existence.
 You MUST open at least 5 test files (or 30% if fewer than 17 total) and:
 
