@@ -2441,6 +2441,64 @@ EOF
 
     cat << EOF
 
+PART 4: SCOPE NARROWING DETECTION (Critical)
+
+Watch for IMPLICIT scope narrowing where tasks restrict inputs the plan accepts:
+
+1. PARAMETER TYPE NARROWING:
+   - Plan: "Parameter accepts Type/interface/generic" → Should support multiple types
+   - Tasks: Restricts to a specific type (e.g., "string only")
+   - This is a CONTRADICTION - the plan's parameter type is broader
+
+2. CONDITIONAL BEHAVIOR vs CONSTRAINTS:
+   - "when X" or "if X" = CONDITIONAL behavior (special handling for X, others still supported)
+   - NOT "only X" or "X only" = CONSTRAINT (restrict to X only)
+
+   Example:
+   - Plan: "Emit Validate() when UnderlyingType == string"
+   - Meaning: String types get validation, other types are still supported (just without validation)
+   - WRONG interpretation: "Only support string UnderlyingType"
+
+3. OPTIONAL → REQUIRED NARROWING:
+   - Plan: "optional parameter", "can specify", "may include"
+   - Tasks: Makes it mandatory or removes the optionality
+   - If plan says something is optional, tasks cannot require it
+
+4. MULTIPLE → SINGLE NARROWING:
+   - Plan: "supports multiple X", "list of", "one or more"
+   - Tasks: Restricts to single item or specific count
+   - If plan supports collections, tasks cannot restrict to single items
+
+5. BROAD → SPECIFIC NARROWING:
+   - Plan: Uses generic terms, interfaces, or abstract concepts
+   - Tasks: Hardcodes specific implementations or concrete values
+   - If plan is generic, tasks cannot hardcode specifics
+
+6. FLEXIBLE → FIXED NARROWING:
+   - Plan: "configurable", "can be changed", "allows customization"
+   - Tasks: Hardcodes behavior without configuration options
+   - If plan allows configuration, tasks cannot remove configurability
+
+7. DETECTION RULES:
+   - If plan uses generic type (Type, T, interface{}) → tasks must not restrict to specific type
+   - If plan uses "when/if/for" conditional → tasks must not interpret as "only"
+   - If plan says "optional" → tasks must not make it required
+   - If plan says "multiple/list/array" → tasks must not restrict to single
+   - If plan is abstract/generic → tasks must not hardcode specifics
+   - If plan is configurable → tasks must not remove configuration
+
+8. RED FLAGS:
+   - Tasks add "only" where plan doesn't have it
+   - Tasks restrict parameter types not restricted in plan
+   - Tasks interpret conditional behavior as hard constraints
+   - Tasks make optional features required
+   - Tasks limit multiplicity not limited in plan
+   - Tasks hardcode values plan left configurable
+   - Tasks add limitations not present in original requirements
+
+If ANY scope narrowing is detected → verdict = INVALID
+This is as serious as missing requirements - it changes what the implementation will accept.
+
 IMPORTANT RULES:
 - Do NOT reference implementation details or code (that hasn't been written yet)
 - Only compare the plan, template, and constitution against the tasks document
@@ -2476,6 +2534,7 @@ OUTPUT FORMAT - You MUST output this exact JSON format at the end:
       "requirements_covered": <number properly covered in tasks.md>,
       "missing_requirements": <number of requirements not covered>,
       "contradictions_found": <number of contradictions>,
+      "scope_narrowing_detected": <number of scope narrowing issues>,
 EOF
 
     if [[ $has_template -eq 1 ]]; then
@@ -2499,6 +2558,14 @@ EOF
     ],
     "contradictions": [
       {"plan_says": "...", "tasks_say": "..."}
+    ],
+    "scope_narrowing_issues": [
+      {
+        "category": "PARAMETER_TYPE_NARROWING|CONDITIONAL_TO_CONSTRAINT|OPTIONAL_TO_REQUIRED|MULTIPLE_TO_SINGLE|BROAD_TO_SPECIFIC|FLEXIBLE_TO_FIXED",
+        "plan_allows": "What the plan specifies",
+        "tasks_restrict_to": "How tasks narrowed it",
+        "why_this_is_wrong": "Explanation of the scope narrowing"
+      }
     ],
 EOF
 
@@ -4035,9 +4102,9 @@ except:
 
         log_info "Tasks validation verdict: $tasks_verdict"
 
-        # Programmatic enforcement: override VALID verdict if contradictions or missing requirements exist
+        # Programmatic enforcement: override VALID verdict if contradictions, missing requirements, or scope narrowing exist
         if [[ "$tasks_verdict" == "VALID" ]]; then
-            local contradictions_count missing_req_count
+            local contradictions_count missing_req_count scope_narrowing_count
             contradictions_count=$(echo "$tasks_val_json" | python3 -c "
 import sys
 import json
@@ -4045,7 +4112,7 @@ import json
 try:
     data = json.load(sys.stdin)
     tasks_val = data.get('RALPH_TASKS_VALIDATION', {})
-    print(tasks_val.get('contradictions_found', 0))
+    print(tasks_val.get('analysis', {}).get('contradictions_found', 0))
 except:
     print(0)
 " 2>/dev/null || echo "0")
@@ -4057,13 +4124,25 @@ import json
 try:
     data = json.load(sys.stdin)
     tasks_val = data.get('RALPH_TASKS_VALIDATION', {})
-    print(tasks_val.get('missing_requirements', 0))
+    print(tasks_val.get('analysis', {}).get('missing_requirements', 0))
 except:
     print(0)
 " 2>/dev/null || echo "0")
 
-            if [[ "$contradictions_count" -gt 0 ]] || [[ "$missing_req_count" -gt 0 ]]; then
-                log_warning "AI returned VALID despite finding contradictions ($contradictions_count) or missing requirements ($missing_req_count) - overriding to INVALID"
+            scope_narrowing_count=$(echo "$tasks_val_json" | python3 -c "
+import sys
+import json
+
+try:
+    data = json.load(sys.stdin)
+    tasks_val = data.get('RALPH_TASKS_VALIDATION', {})
+    print(tasks_val.get('analysis', {}).get('scope_narrowing_detected', 0))
+except:
+    print(0)
+" 2>/dev/null || echo "0")
+
+            if [[ "$contradictions_count" -gt 0 ]] || [[ "$missing_req_count" -gt 0 ]] || [[ "$scope_narrowing_count" -gt 0 ]]; then
+                log_warning "AI returned VALID despite finding contradictions ($contradictions_count), missing requirements ($missing_req_count), or scope narrowing ($scope_narrowing_count) - overriding to INVALID"
                 tasks_verdict="INVALID"
                 log_info "Tasks validation verdict (overridden): $tasks_verdict"
             fi
