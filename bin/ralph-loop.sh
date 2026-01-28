@@ -3735,8 +3735,28 @@ PYTHON_EOF
     if [[ -n "$GITHUB_ISSUE" ]]; then
         local plan_file="$STATE_DIR/github-issue-plan.md"
 
-        # Check if we need to fetch (plan file doesn't exist or is being resumed)
-        if [[ ! -f "$plan_file" || (-z "$ORIGINAL_PLAN_FILE" && $resuming -eq 1) ]]; then
+        # Extract requested issue number (handles URL or number format)
+        local requested_issue_num
+        requested_issue_num=$(echo "$GITHUB_ISSUE" | grep -oE '[0-9]+$')
+
+        # Check if cached plan matches requested issue
+        local should_fetch=0
+        if [[ ! -f "$plan_file" ]]; then
+            should_fetch=1
+        elif [[ -z "$ORIGINAL_PLAN_FILE" && $resuming -eq 1 ]]; then
+            should_fetch=1
+        elif [[ -f "$plan_file" ]]; then
+            # Plan file exists - verify it matches requested issue
+            local cached_issue_num
+            cached_issue_num=$(head -1 "$plan_file" | sed -n 's/^# GitHub Issue #\([0-9]*\):.*/\1/p')
+            if [[ -n "$cached_issue_num" && "$cached_issue_num" != "$requested_issue_num" ]]; then
+                log_warn "Cached plan is for issue #$cached_issue_num, but requested issue #$requested_issue_num"
+                log_info "Re-fetching plan for issue #$requested_issue_num..."
+                should_fetch=1
+            fi
+        fi
+
+        if [[ $should_fetch -eq 1 ]]; then
             log_info "Fetching plan from GitHub issue: $GITHUB_ISSUE"
 
             local issue_content
@@ -4045,6 +4065,8 @@ except Exception as e:
                             printf "${GREEN}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
                             echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
 
+                            log_info "Cleaning up session directory..."
+                            rm -rf "$STATE_DIR"
                             exit $EXIT_SUCCESS
                         else
                             # REJECTED - set feedback and continue to next iteration
@@ -4309,6 +4331,8 @@ except Exception as e:
                             printf "${GREEN}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
                             echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
 
+                            log_info "Cleaning up session directory..."
+                            rm -rf "$STATE_DIR"
                             exit $EXIT_SUCCESS
                         else
                             # REJECTED - continue loop with cross-validation feedback
@@ -4349,6 +4373,8 @@ except Exception as e:
                         printf "${GREEN}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
                         echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
 
+                        log_info "Cleaning up session directory..."
+                        rm -rf "$STATE_DIR"
                         exit $EXIT_SUCCESS
                     else
                         # Cross-validation disabled, original behavior
@@ -4367,6 +4393,8 @@ except Exception as e:
                         printf "${GREEN}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
                         echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
 
+                        log_info "Cleaning up session directory..."
+                        rm -rf "$STATE_DIR"
                         exit $EXIT_SUCCESS
                     fi
                 elif [[ $doable_unchecked -gt 0 ]]; then
