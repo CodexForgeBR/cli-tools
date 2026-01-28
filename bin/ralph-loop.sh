@@ -2033,6 +2033,7 @@ IMPORTANT: Verify CURRENT STATE, not historical log files.
 | Build | Build SUCCEEDS when you run it NOW |
 | Run/Execute X | Outcome is correct in current state |
 | Verify X | X is true in current state |
+| Playwright MCP validation | Screenshots exist at specified path OR code changes verified via git diff |
 
 Do NOT require log files (deploy.log, test-results.txt, etc.) unless the task
 explicitly says \"capture output\" or \"log results\".
@@ -2046,6 +2047,33 @@ EXAMPLE - CORRECT VERIFICATION:
 - Task: \"Run quickstart.md validation scenarios\"
 - Verification: Generated validators have expected error messages? → CONFIRMED
 - WRONG: Looking for quickstart-execution.log file
+
+PLAYWRIGHT MCP VALIDATION TASKS:
+═══════════════════════════════════════════════════════════════════════════════
+
+For tasks containing "Playwright MCP" or "via Playwright MCP":
+
+1. If task specifies a storage path (e.g., "store in specs/.../validation/"):
+   - Screenshots MUST exist at that path
+   - Verify file exists and is a valid image
+
+2. If task does NOT specify storage path:
+   - Verify underlying code changes are correct (git diff)
+   - Verify lint passes
+   - Verify build passes
+   - Code-level verification is SUFFICIENT
+
+EXAMPLES:
+✅ Task: "Validate Banks via Playwright MCP" (no storage path)
+   Verification: git diff shows template removed + lint passes
+   Verdict: CONFIRMED
+
+❌ Task: "Capture screenshots to specs/xxx/validation/"
+   Verification: Screenshots MUST exist at specified path
+   Verdict: REJECTED if files missing
+
+Do NOT reject Playwright MCP tasks solely because no screenshots are in /tmp.
+═══════════════════════════════════════════════════════════════════════════════
 
 COVERAGE VERIFICATION TASKS - CRITICAL:
 
