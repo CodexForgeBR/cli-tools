@@ -23,12 +23,21 @@ Before starting, verify:
 
 1. **Configuration file exists**: `.claude/pr-merger.json` in repository root
    - If missing, STOP and instruct user to create it
-   - Required field: `testCommand`
-   - Example:
+   - Required field: `testCommand` (unless `skipTests: true`)
+   - Example with tests:
      ```json
      {
        "testCommand": "dotnet test --no-build --verbosity normal",
        "buildCommand": "dotnet build",
+       "maxCIFixIterations": 5,
+       "maxCodeRabbitIterations": 5
+     }
+     ```
+   - Example without tests:
+     ```json
+     {
+       "skipTests": true,
+       "buildCommand": "npm run build",
        "maxCIFixIterations": 5,
        "maxCodeRabbitIterations": 5
      }
@@ -43,6 +52,8 @@ Before starting, verify:
    - `gh` CLI installed and authenticated
    - `get-coderabbit-comments-with-timestamps.sh` in PATH
    - Git repository with proper remote configuration
+
+**Note on testCommand**: The `testCommand` field is optional when `skipTests: true` is set in the configuration. This allows projects without tests to use the pr-merger.
 
 If any prerequisite fails, STOP and report the issue to the user.
 
@@ -105,25 +116,36 @@ gh pr checks <PR_NUMBER> --json name,state,conclusion
 
 ### Running Local Tests
 
-ALWAYS run local tests before pushing:
+ALWAYS run local tests before pushing (unless `skipTests: true`):
 
 ```bash
 # Load config
-TEST_COMMAND=$(jq -r '.testCommand' .claude/pr-merger.json)
+SKIP_TESTS=$(jq -r '.skipTests // false' .claude/pr-merger.json)
+TEST_COMMAND=$(jq -r '.testCommand // empty' .claude/pr-merger.json)
 BUILD_COMMAND=$(jq -r '.buildCommand // empty' .claude/pr-merger.json)
 
-# Run build if specified
-if [ -n "$BUILD_COMMAND" ]; then
-  eval "$BUILD_COMMAND" || exit 1
-fi
+if [ "$SKIP_TESTS" != "true" ]; then
+  # Run build if specified
+  if [ -n "$BUILD_COMMAND" ]; then
+    eval "$BUILD_COMMAND" || exit 1
+  fi
 
-# Run tests
-eval "$TEST_COMMAND" || exit 1
+  # Run tests
+  eval "$TEST_COMMAND" || exit 1
+else
+  echo "⚠️  Tests skipped (skipTests: true)"
+  # Still run build if specified
+  if [ -n "$BUILD_COMMAND" ]; then
+    eval "$BUILD_COMMAND" || exit 1
+  fi
+fi
 ```
 
 ### Safety Rules
 
-- **NEVER push without passing tests locally**
+- **NEVER push without passing tests locally** (unless `skipTests: true`)
+- When `skipTests: true`, ensure CI/CD provides adequate verification
+- Consider adding linting or other validation if tests are skipped
 - Max 5 fix iterations to prevent infinite loops
 - Always analyze logs before attempting fixes
 - Report clearly if unable to auto-fix
@@ -197,22 +219,34 @@ For each comment:
 
 ```bash
 # Load test command from config
-TEST_COMMAND=$(jq -r '.testCommand' .claude/pr-merger.json)
+SKIP_TESTS=$(jq -r '.skipTests // false' .claude/pr-merger.json)
+TEST_COMMAND=$(jq -r '.testCommand // empty' .claude/pr-merger.json)
 BUILD_COMMAND=$(jq -r '.buildCommand // empty' .claude/pr-merger.json)
 
-# Build if needed
-if [ -n "$BUILD_COMMAND" ]; then
-  eval "$BUILD_COMMAND" || {
-    echo "Build failed after fixes"
+if [ "$SKIP_TESTS" != "true" ]; then
+  # Build if needed
+  if [ -n "$BUILD_COMMAND" ]; then
+    eval "$BUILD_COMMAND" || {
+      echo "Build failed after fixes"
+      exit 1
+    }
+  fi
+
+  # Run tests
+  eval "$TEST_COMMAND" || {
+    echo "Tests failed after fixes"
     exit 1
   }
+else
+  echo "⚠️  Tests skipped (skipTests: true)"
+  # Still run build if specified
+  if [ -n "$BUILD_COMMAND" ]; then
+    eval "$BUILD_COMMAND" || {
+      echo "Build failed after fixes"
+      exit 1
+    }
+  fi
 fi
-
-# Run tests
-eval "$TEST_COMMAND" || {
-  echo "Tests failed after fixes"
-  exit 1
-}
 ```
 
 **CRITICAL**: If tests fail, STOP immediately and report to user. Do NOT push failing code.
@@ -318,8 +352,9 @@ fi
 
 ### Safety Rules
 
-- **NEVER push without passing tests**
+- **NEVER push without passing tests** (unless `skipTests: true`)
 - **ALWAYS post a comment tagging @coderabbitai after every fix** - This is mandatory, not optional
+- When `skipTests: true`, ensure builds still succeed if buildCommand is specified
 - Parse responses carefully to avoid misunderstanding
 - Respect max iteration limits
 - Report if unable to resolve feedback automatically
@@ -513,9 +548,11 @@ if [ ! -f ".claude/pr-merger.json" ]; then
 fi
 
 # Validate required fields
+SKIP_TESTS=$(jq -r '.skipTests // false' .claude/pr-merger.json)
 TEST_CMD=$(jq -r '.testCommand // empty' .claude/pr-merger.json)
-if [ -z "$TEST_CMD" ]; then
+if [ "$SKIP_TESTS" != "true" ] && [ -z "$TEST_CMD" ]; then
   echo "❌ ERROR: testCommand not specified in .claude/pr-merger.json"
+  echo "Set \"skipTests\": true if this project has no tests"
   exit 1
 fi
 ```

@@ -28,8 +28,12 @@ Create `.claude/pr-merger.json` in your repository root:
 
 **Required:**
 - `testCommand` - Command to run tests (e.g., `npm test`, `cargo test`, `pytest`)
+  - **Note:** Optional if `skipTests: true` is set
 
 **Optional:**
+- `skipTests` - Set to `true` to skip test execution (default: `false`)
+  - Use for projects without tests
+  - Build command will still run if specified
 - `buildCommand` - Build command to run before tests
 - `preMergeChecks` - Array of check names required before merge
 - `requiredChecks` - Array of GitHub check names that must pass
@@ -153,6 +157,17 @@ Switch to main → Pull latest → Delete local branch → Delete remote branch
 }
 ```
 
+### Project Without Tests
+
+```json
+{
+  "skipTests": true,
+  "buildCommand": "npm run build",
+  "maxCIFixIterations": 5,
+  "maxCodeRabbitIterations": 5
+}
+```
+
 ## Safety Features
 
 ### 🛡️ Never Pushes Failing Tests
@@ -207,10 +222,19 @@ Every step is logged with clear success/failure indicators.
 
 ### "Configuration file not found"
 
-Create `.claude/pr-merger.json` in your repository root with at minimum:
+Create `.claude/pr-merger.json` in your repository root.
+
+For projects with tests:
 ```json
 {
   "testCommand": "your test command here"
+}
+```
+
+For projects without tests:
+```json
+{
+  "skipTests": true
 }
 ```
 

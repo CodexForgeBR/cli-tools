@@ -77,14 +77,23 @@ Each repository must have `.claude/pr-merger.json`:
 ```
 
 **Required fields:**
-- `testCommand` - Command to run tests
+- `testCommand` - Command to run tests (optional if `skipTests: true`)
 
 **Optional fields:**
+- `skipTests` - Skip test execution (default: false) - allows projects without tests
 - `buildCommand` - Build command to run before tests
 - `preMergeChecks` - Checks to run before merging (default: `["test"]`)
 - `requiredChecks` - GitHub check names that must pass
 - `maxCIFixIterations` - Max CI fix attempts (default: 5)
 - `maxCodeRabbitIterations` - Max CodeRabbit loops (default: 5)
+
+**Example for projects without tests:**
+```json
+{
+  "skipTests": true,
+  "buildCommand": "npm run build"
+}
+```
 
 ## Dependencies
 
