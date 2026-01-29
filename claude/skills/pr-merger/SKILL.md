@@ -43,11 +43,13 @@ Activate this skill when you want to:
 
 ### Phase 2: CodeRabbit Feedback Loop
 - Fetches CodeRabbit review comments
-- Applies fixes
+- **MUST fix ALL comments - NO exceptions, NO skipping, NO judgment calls**
+- Applies fixes for EVERY comment regardless of severity (Trivial, Minor, Major, Critical)
 - Runs tests before pushing
 - Posts response to CodeRabbit
 - Waits for CodeRabbit response (polls every 15s, max 3 min)
 - Repeats if CodeRabbit raises more issues (max 5 iterations)
+- **If max iterations reached with unresolved comments: FAIL the merge - do NOT proceed**
 
 ### Phase 3: Merge PR
 - Validates all checks pass
@@ -105,12 +107,84 @@ Each repository must have `.claude/pr-merger.json`:
 ## Safety Features
 
 1. **Never push failing tests** - All tests must pass before pushing
-2. **Max iteration limits** - Prevents infinite loops
-3. **Protected branch detection** - Never deletes main/master/develop
-4. **Merge conflict detection** - Stops and reports if conflicts exist
-5. **Approval requirement check** - Reports if approvals needed
-6. **Config file required** - Stops if configuration missing
+2. **NEVER skip CodeRabbit feedback** - ALL comments must be addressed, regardless of severity
+3. **Max iteration limits** - Prevents infinite loops; if reached with unresolved comments, merge FAILS
+4. **Protected branch detection** - Never deletes main/master/develop
+5. **Merge conflict detection** - Stops and reports if conflicts exist
+6. **Approval requirement check** - Reports if approvals needed
+7. **Config file required** - Stops if configuration missing
+
+**CRITICAL RULE**: The agent has **ZERO authority** to decide which CodeRabbit comments to skip. Every comment (Trivial, Minor, Major, Critical) MUST be addressed in each iteration. If the agent cannot resolve all comments within max iterations, it MUST fail the merge and report to the user.
 
 ## Implementation
 
-This skill delegates to the `pr-merger-agent` sub-agent via the Task tool for isolated execution.
+This skill delegates to a general-purpose agent via the Task tool for isolated execution.
+
+### Agent Prompt Template
+
+When invoking this skill, use this EXACT prompt structure:
+
+```
+You are the pr-merger-agent. Your job is to shepherd Pull Request #[PR_NUMBER] through the complete merge lifecycle:
+
+**CRITICAL RULES - DO NOT VIOLATE:**
+- You have ZERO authority to skip CodeRabbit feedback
+- You MUST fix ALL comments regardless of severity (Trivial, Minor, Major, Critical)
+- You MUST NOT make judgment calls about which comments are "important enough" to fix
+- If max iterations is reached with unresolved comments, you MUST FAIL the merge
+- NEVER proceed to merge if any CodeRabbit comments remain unaddressed
+
+1. **Phase 1: CI/CD Monitoring & Fixing**
+   - Check GitHub Actions status for PR #[PR_NUMBER]
+   - Identify any failing checks
+   - Attempt to fix failures
+   - Re-run checks until all pass (max [maxCIFixIterations] iterations)
+   - If max iterations reached with failing checks, FAIL and report to user
+
+2. **Phase 2: CodeRabbit Feedback Loop**
+   - Fetch CodeRabbit review comments using `get-coderabbit-comments-with-timestamps.sh [PR_NUMBER]`
+   - **CRITICAL**: Address EVERY comment - no exceptions, no skipping
+   - Apply fixes for ALL comments regardless of severity level
+   - Run tests before pushing ([testCommand])
+   - Push fixes ONLY if tests pass
+   - Post response to CodeRabbit explaining what was fixed
+   - Wait for CodeRabbit response (poll every 15s, max 3 min)
+   - Repeat if CodeRabbit raises more issues (max [maxCodeRabbitIterations] iterations)
+   - If max iterations reached with unresolved comments, FAIL the merge and report to user
+
+3. **Phase 3: Merge PR**
+   - Validate all checks pass
+   - Validate no unresolved CodeRabbit comments exist
+   - Verify no merge conflicts
+   - Execute rebase merge: `gh pr merge [PR_NUMBER] --rebase --delete-branch`
+   - Report if approvals are required but missing
+
+4. **Phase 4: Post-Merge Cleanup**
+   - Switch to main branch
+   - Pull latest changes
+   - Delete local feature branch (if not already deleted)
+   - Verify remote branch deletion
+
+**Configuration** (from `.claude/pr-merger.json`):
+- testCommand: "[testCommand]"
+- buildCommand: "[buildCommand]"
+- maxCIFixIterations: [maxCIFixIterations]
+- maxCodeRabbitIterations: [maxCodeRabbitIterations]
+
+**Safety Rules:**
+- NEVER push failing tests
+- NEVER skip CodeRabbit feedback
+- Stop if merge conflicts exist
+- Stop if approvals are needed
+- Respect max iteration limits
+- Never delete protected branches (main/master/develop)
+
+**Failure Conditions**:
+- Tests fail after applying fixes
+- Max CI iterations reached with failing checks
+- Max CodeRabbit iterations reached with unresolved comments
+- Merge conflicts exist
+- PR is not in mergeable state
+
+Start with Phase 1 and work through each phase sequentially. Report clear success/failure status at each phase.
+```
