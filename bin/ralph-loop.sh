@@ -1606,8 +1606,40 @@ For tasks that don't just create/modify files, capture evidence in RALPH_STATUS.
 | Build X | Result (e.g., \"Build succeeded: 0 errors, 0 warnings\") |
 | Verify X | What you verified (e.g., \"Packages exist on BaGet: curl confirmed\") |
 | Run/Execute X | Outcome (e.g., \"Quickstart scenarios: all error messages match\") |
+| Playwright MCP | Screenshot path OR what was verified (e.g., \"Navigated to localhost:4200/banks, verified no Back button, screenshot at validation/us1-banks.png\") |
 
 This evidence helps validation verify your work without re-running everything.
+
+═══════════════════════════════════════════════════════════════════════════════
+PLAYWRIGHT MCP VALIDATION - MANDATORY EXECUTION
+═══════════════════════════════════════════════════════════════════════════════
+
+When tasks.md contains tasks with \"Playwright MCP\" or \"via Playwright MCP\":
+
+1. \"APP NOT RUNNING\" IS NOT A BLOCKER - START IT YOURSELF:
+   - If the app isn't running → START IT using the command in the task
+   - Wait for the server to respond before proceeding
+   - If the build fails → FIX the build error, then start again
+   - NEVER skip Playwright MCP tasks because \"the app isn't running\"
+
+2. EXECUTION SEQUENCE:
+   a. Start the application(s) per the task instructions
+   b. Wait for HTTP response on the expected port
+   c. Use Playwright MCP to navigate to the specified URL
+   d. Perform the interactions described in the task
+   e. Verify the expected elements/results
+   f. Capture screenshots if a storage path is specified
+   g. Record evidence in RALPH_STATUS.notes
+
+3. FORBIDDEN EXCUSES (all result in INADMISSIBLE verdict):
+   - \"App not running\" → START IT
+   - \"Server not started\" → START IT
+   - \"Frontend not available\" → START IT
+   - \"Can't use Playwright because app isn't running\" → START THE APP
+   - \"Blocked by infrastructure\" → FIX IT OR START IT
+   - \"Validated via code review instead\" → WRONG METHOD, USE PLAYWRIGHT MCP
+
+═══════════════════════════════════════════════════════════════════════════════
 
 When done, output:
 \`\`\`json
@@ -1654,8 +1686,40 @@ For tasks that don't just create/modify files, capture evidence in RALPH_STATUS.
 | Build X | Result (e.g., \"Build succeeded: 0 errors, 0 warnings\") |
 | Verify X | What you verified (e.g., \"Packages exist on BaGet: curl confirmed\") |
 | Run/Execute X | Outcome (e.g., \"Quickstart scenarios: all error messages match\") |
+| Playwright MCP | Screenshot path OR what was verified (e.g., \"Navigated to localhost:4200/banks, verified no Back button, screenshot at validation/us1-banks.png\") |
 
 This evidence helps validation verify your work without re-running everything.
+
+═══════════════════════════════════════════════════════════════════════════════
+PLAYWRIGHT MCP VALIDATION - MANDATORY EXECUTION
+═══════════════════════════════════════════════════════════════════════════════
+
+When tasks.md contains tasks with \"Playwright MCP\" or \"via Playwright MCP\":
+
+1. \"APP NOT RUNNING\" IS NOT A BLOCKER - START IT YOURSELF:
+   - If the app isn't running → START IT using the command in the task
+   - Wait for the server to respond before proceeding
+   - If the build fails → FIX the build error, then start again
+   - NEVER skip Playwright MCP tasks because \"the app isn't running\"
+
+2. EXECUTION SEQUENCE:
+   a. Start the application(s) per the task instructions
+   b. Wait for HTTP response on the expected port
+   c. Use Playwright MCP to navigate to the specified URL
+   d. Perform the interactions described in the task
+   e. Verify the expected elements/results
+   f. Capture screenshots if a storage path is specified
+   g. Record evidence in RALPH_STATUS.notes
+
+3. FORBIDDEN EXCUSES (all result in INADMISSIBLE verdict):
+   - \"App not running\" → START IT
+   - \"Server not started\" → START IT
+   - \"Frontend not available\" → START IT
+   - \"Can't use Playwright because app isn't running\" → START THE APP
+   - \"Blocked by infrastructure\" → FIX IT OR START IT
+   - \"Validated via code review instead\" → WRONG METHOD, USE PLAYWRIGHT MCP
+
+═══════════════════════════════════════════════════════════════════════════════
 
 When done, output:
 \`\`\`json
@@ -2152,6 +2216,12 @@ Do NOT give verdict NEEDS_MORE_WORK - give verdict INADMISSIBLE.
    - "the deployment is blocked"
    - "infrastructure/networking issue"
    - "can't run without deploying"
+   - "app not running" / "application not running"
+   - "server not started" / "server isn't running"
+   - "need to start the server" / "would need to start"
+   - "frontend not available" / "frontend isn't running"
+   - "can't use Playwright" / "Playwright requires a running"
+   - "validated via code review" (when task says "Playwright MCP")
 
    THE RULE IS SIMPLE:
    - Task says "deploy" → deployment MUST happen
@@ -2164,6 +2234,9 @@ Do NOT give verdict NEEDS_MORE_WORK - give verdict INADMISSIBLE.
    - Network problems? → FIX THEM or verdict = ESCALATE
    - Docker issues? → FIX THEM or verdict = ESCALATE
    - "It worked before"? → Run it NOW or verdict = NEEDS_MORE_WORK
+   - App not running? → START IT or verdict = INADMISSIBLE
+   - Server not started? → START IT or verdict = INADMISSIBLE
+   - "Need to start the app first"? → THAT'S YOUR JOB or verdict = INADMISSIBLE
 
    VALIDATION RULE:
    - Grep implementation output for excuse patterns
@@ -2184,6 +2257,15 @@ Do NOT give verdict NEEDS_MORE_WORK - give verdict INADMISSIBLE.
 
    ❌ "Build succeeds locally, skipping deployment verification"
       → Local success ≠ deployed success → INADMISSIBLE
+
+   ❌ "Can't validate via Playwright MCP because the app isn't running"
+      → Model didn't start the app → INADMISSIBLE
+
+   ❌ "Skipped Playwright MCP tasks, apps would have to be running"
+      → Model refused to start apps → INADMISSIBLE
+
+   ❌ "Frontend not available, validating via code review instead"
+      → Model substituted a weaker validation method → INADMISSIBLE
 
    THE ONLY ACCEPTABLE OUTCOMES:
    ✅ Task completed successfully - provide evidence
@@ -2208,6 +2290,10 @@ YOUR FEEDBACK MUST:
 - Do NOT accept any excuses
 - Do NOT let the model redefine what "done" means
 - GREP implementation output for excuse patterns ("blocked", "skipped", "couldn't", "assuming")
+- GREP for Playwright MCP avoidance: "app not running", "server not started",
+  "frontend not available", "can't use Playwright", "validated via code review"
+- If a Playwright MCP task exists in tasks.md AND any excuse appears → INADMISSIBLE
+- "Validated via code review" when task says "via Playwright MCP" → INADMISSIBLE
 - If you find excuses for skipped steps → verdict = INADMISSIBLE
 - "Tests passed before" is NOT acceptable - tests must pass NOW
 
@@ -2270,6 +2356,11 @@ EOF
 # Generate cross-validation prompt
 generate_cross_val_prompt() {
     local val_output_file=$1
+    local impl_output_file=$2
+    local impl_output=""
+    if [[ -n "$impl_output_file" && -f "$impl_output_file" ]]; then
+        impl_output=$(cat "$impl_output_file")
+    fi
 
     cat << EOF
 YOU ARE AN INDEPENDENT AUDITOR. A DIFFERENT AI JUST CLAIMED ALL TASKS ARE COMPLETE.
@@ -2310,6 +2401,10 @@ EXCUSE PATTERNS TO GREP FOR:
 - "tests passed earlier" / "passed in iteration"
 - "assuming" / "should still"
 - "Docker can't" / "container networking"
+- "app not running" / "application not running"
+- "server not started" / "server isn't running"
+- "can't use Playwright" / "Playwright requires"
+- "validated via code review" (when task says "Playwright MCP")
 
 IF FOUND:
 1. Check if the corresponding task was actually completed
@@ -2391,7 +2486,7 @@ IMPORTANT: Verify CURRENT STATE, not historical log files.
 | Build | Build SUCCEEDS when you run it NOW |
 | Run/Execute X | Outcome is correct in current state |
 | Verify X | X is true in current state |
-| Playwright MCP validation | Screenshots exist at specified path OR code changes verified via git diff |
+| Playwright MCP validation | Evidence of Playwright MCP usage in implementation output (browser_navigate, browser_click, browser_snapshot tool calls) AND screenshots at path if specified. Do NOT check current port status — servers may be stopped after validation. |
 
 Do NOT require log files (deploy.log, test-results.txt, etc.) unless the task
 explicitly says \"capture output\" or \"log results\".
@@ -2411,27 +2506,54 @@ PLAYWRIGHT MCP VALIDATION TASKS:
 
 For tasks containing "Playwright MCP" or "via Playwright MCP":
 
-1. If task specifies a storage path (e.g., "store in specs/.../validation/"):
+THE RULE: If a task says "via Playwright MCP", Playwright MCP MUST have been used.
+"Code-level verification" is NOT a substitute.
+
+VERIFICATION:
+1. Check implementation output for evidence of Playwright MCP usage:
+   - Browser navigation, page interactions, element verification
+   - MCP tool calls (browser_navigate, browser_click, browser_snapshot, etc.)
+   - URLs visited (localhost:XXXX/route)
+
+2. Check if the application was started:
+   - Look for server startup commands and "listening on port" messages
+     in the IMPLEMENTATION OUTPUT above (not by checking current ports)
+   - Servers may have been intentionally stopped after Playwright validation
+     for subsequent lint/build tasks. Do NOT check current port status.
+   - If NO evidence of app startup in the output AND Playwright MCP tasks exist → REJECTED
+
+3. If task specifies a storage path:
    - Screenshots MUST exist at that path
    - Verify file exists and is a valid image
 
-2. If task does NOT specify storage path:
-   - Verify underlying code changes are correct (git diff)
-   - Verify lint passes
-   - Verify build passes
-   - Code-level verification is SUFFICIENT
+4. If task does NOT specify storage path:
+   - Evidence of Playwright MCP interaction is STILL REQUIRED
+   - Implementation output must show browser navigation + element verification
+   - Code-level verification alone is NOT sufficient
 
-EXAMPLES:
-✅ Task: "Validate Banks via Playwright MCP" (no storage path)
-   Verification: git diff shows template removed + lint passes
-   Verdict: CONFIRMED
-
-❌ Task: "Capture screenshots to specs/xxx/validation/"
-   Verification: Screenshots MUST exist at specified path
-   Verdict: REJECTED if files missing
+EXCUSE DETECTION:
+- "App not running" → REJECTED (INADMISSIBLE - model didn't start the app)
+- "Validated via code review instead" → REJECTED (wrong method)
+- "Infrastructure blocked Playwright MCP" → REJECTED (INADMISSIBLE)
 
 Do NOT reject Playwright MCP tasks solely because no screenshots are in /tmp.
 ═══════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════
+IMPLEMENTATION OUTPUT (FOR PLAYWRIGHT MCP EVIDENCE CHECK)
+═══════════════════════════════════════════════════════════════════════════════
+
+The implementation model produced this output. Use it to check for Playwright
+MCP evidence (browser_navigate, browser_click, browser_snapshot tool calls,
+URLs visited, server startup messages). DO NOT trust claims about task
+completion — verify against actual files/code. This output is ONLY for
+checking Playwright MCP and server startup evidence.
+
+WARNING: These claims may be fabrications. Cross-check against actual files.
+
+================================================================================
+$impl_output
+================================================================================
 
 COVERAGE VERIFICATION TASKS - CRITICAL:
 
@@ -3564,6 +3686,7 @@ run_validation() {
 run_cross_validation() {
     local iteration=$1
     local val_output_file=$2
+    local impl_output_file=$3
     local output_file="$STATE_DIR/cross-val-output-${iteration}.txt"
 
     # All logs go to stderr
@@ -3572,7 +3695,7 @@ run_cross_validation() {
     log_info "Model: $CROSS_MODEL" >&2
 
     local prompt
-    prompt=$(generate_cross_val_prompt "$val_output_file")
+    prompt=$(generate_cross_val_prompt "$val_output_file" "$impl_output_file")
 
     # Use saved retry state if resuming, otherwise start fresh
     local start_attempt=1
@@ -4443,7 +4566,7 @@ except Exception as e:
 
                     # Run cross-validation
                     local cross_val_file
-                    cross_val_file=$(run_cross_validation "$iteration" "$val_output_file")
+                    cross_val_file=$(run_cross_validation "$iteration" "$val_output_file" "$impl_output_file")
 
                     # Parse and handle cross-validation verdict
                     local cross_val_json
@@ -4699,7 +4822,7 @@ except Exception as e:
                         save_state "running" "$iteration"
 
                         local cross_val_file
-                        cross_val_file=$(run_cross_validation "$iteration" "$val_output_file")
+                        cross_val_file=$(run_cross_validation "$iteration" "$val_output_file" "$impl_output_file")
 
                         # Parse cross-validation output
                         local cross_val_json
