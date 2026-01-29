@@ -166,6 +166,11 @@ log_phase() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
 }
 
+log_debug() {
+    [[ -n "$VERBOSE" ]] && echo -e "${BLUE}[DEBUG]${NC} $1"
+    return 0
+}
+
 # Format seconds into human readable time
 format_duration() {
     local seconds=$1
