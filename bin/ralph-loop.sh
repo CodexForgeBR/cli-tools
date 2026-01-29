@@ -122,12 +122,6 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# Track state for circuit breaker
-LAST_CHECKED_COUNT=0
-NO_PROGRESS_COUNT=0
-MAX_NO_PROGRESS=3
-LAST_COMMIT_HASH=""
-LAST_HAD_CHANGES=false
 
 # Cleanup handler for graceful shutdown
 cleanup() {
@@ -1001,12 +995,6 @@ try:
     print(f"SESSION_ID='{state.get('session_id', '')}'")
     print(f"STORED_AI_CLI='{state.get('ai_cli', '')}'")
 
-    circuit = state.get('circuit_breaker', {})
-    print(f"NO_PROGRESS_COUNT={circuit.get('no_progress_count', 0)}")
-    print(f"LAST_CHECKED_COUNT={circuit.get('last_unchecked_count', 0)}")
-    print(f"LAST_COMMIT_HASH='{circuit.get('last_commit_hash', '')}'")
-    last_had_changes = circuit.get('last_had_changes', False)
-    print(f"LAST_HAD_CHANGES={'true' if last_had_changes else 'false'}")
 
     # Store tasks file hash for validation
     print(f"STORED_TASKS_HASH='{state.get('tasks_file_hash', '')}'")
@@ -1458,12 +1446,6 @@ save_state() {
         "enabled": $([[ -n "$SCHEDULE_TARGET_EPOCH" ]] && echo "true" || echo "false"),
         "target_epoch": ${SCHEDULE_TARGET_EPOCH:-0},
         "target_human": "$SCHEDULE_TARGET_HUMAN"
-    },
-    "circuit_breaker": {
-        "no_progress_count": $NO_PROGRESS_COUNT,
-        "last_unchecked_count": ${LAST_CHECKED_COUNT:-0},
-        "last_commit_hash": "$LAST_COMMIT_HASH",
-        "last_had_changes": $([[ "$LAST_HAD_CHANGES" == "true" ]] && echo "true" || echo "false")
     },
     "retry_state": {
         "attempt": $CURRENT_RETRY_ATTEMPT,
@@ -4292,13 +4274,9 @@ PYTHON_EOF
         log_summary "Implementation model: $IMPL_MODEL, Validation model: $VAL_MODEL"
 
         SCRIPT_START_TIME=$(get_timestamp)
-        last_unchecked=$initial_unchecked
-        LAST_COMMIT_HASH=$(get_current_commit)
-        has_uncommitted_changes && LAST_HAD_CHANGES=true || LAST_HAD_CHANGES=false
     else
         # Resuming - use existing state
         log_summary "Resumed Ralph Loop at iteration $iteration"
-        last_unchecked=${LAST_CHECKED_COUNT:-$initial_unchecked}
 
         # Initialize learnings file if needed (for resumed sessions)
         init_learnings_file
@@ -5048,45 +5026,6 @@ except Exception as e:
                 LAST_FEEDBACK="$feedback"  # Store for state saving
                 log_info "Feedback: $feedback"
 
-                # Circuit breaker check
-                local current_unchecked
-                current_unchecked=$(count_unchecked_tasks "$TASKS_FILE")
-
-                # Check for git progress
-                local current_commit=$(get_current_commit)
-                local current_has_changes=false
-                has_uncommitted_changes && current_has_changes=true
-
-                local git_progress=false
-                if [[ "$current_commit" != "$LAST_COMMIT_HASH" ]]; then
-                    git_progress=true
-                    log_debug "Progress detected: new commit $current_commit"
-                fi
-                if [[ "$current_has_changes" == "true" && "$LAST_HAD_CHANGES" == "false" ]]; then
-                    git_progress=true
-                    log_debug "Progress detected: new uncommitted changes"
-                fi
-
-                # Only count as no progress if BOTH task count unchanged AND no git progress
-                if [[ "$current_unchecked" -eq "$last_unchecked" && "$git_progress" == "false" ]]; then
-                    NO_PROGRESS_COUNT=$((NO_PROGRESS_COUNT + 1))
-                    log_warn "No progress detected ($NO_PROGRESS_COUNT/$MAX_NO_PROGRESS)"
-
-                    if [[ $NO_PROGRESS_COUNT -ge $MAX_NO_PROGRESS ]]; then
-                        local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
-                        log_error "Circuit breaker: $MAX_NO_PROGRESS iterations with no progress"
-                        CURRENT_PHASE="circuit_breaker"
-                        save_state "CIRCUIT_BREAKER" "$iteration" "NEEDS_MORE_WORK"
-                        log_summary "CIRCUIT BREAKER: No progress for $MAX_NO_PROGRESS iterations ($(format_duration $total_elapsed))"
-                        log_info "Total time: $(format_duration $total_elapsed)"
-                        exit $EXIT_MAX_ITERATIONS
-                    fi
-                else
-                    NO_PROGRESS_COUNT=0
-                    last_unchecked=$current_unchecked
-                    LAST_COMMIT_HASH=$current_commit
-                    LAST_HAD_CHANGES=$current_has_changes
-                fi
                 ;;
 
             ESCALATE)
@@ -5207,9 +5146,6 @@ except Exception as e:
                 LAST_FEEDBACK="$feedback"  # Store for state saving
                 ;;
         esac
-
-        # Update last_unchecked_count for state saving
-        LAST_CHECKED_COUNT=$(count_unchecked_tasks "$TASKS_FILE")
 
         # Display iteration elapsed time
         local iter_elapsed=$(($(get_timestamp) - ITERATION_START_TIME))
