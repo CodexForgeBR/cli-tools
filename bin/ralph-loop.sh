@@ -3211,6 +3211,14 @@ try:
                     for content in obj['message'].get('content', []):
                         if content.get('type') == 'text':
                             text_parts.append(content.get('text', ''))
+                        elif content.get('type') == 'tool_use':
+                            tool_name = content.get('name', 'unknown')
+                            tool_input = content.get('input', {})
+                            try:
+                                input_str = json.dumps(tool_input, ensure_ascii=False)
+                            except (TypeError, ValueError):
+                                input_str = str(tool_input)
+                            text_parts.append(f'[Tool Call: {tool_name}] {input_str}')
 
                 # Get final result
                 if msg_type == 'result':
@@ -3267,6 +3275,10 @@ try:
                 item_type = item.get('type', '')
                 if item_type in ('agent_message', 'assistant_message'):
                     record_text(item.get('text', ''))
+                elif item_type == 'function_call':
+                    func_name = item.get('name', 'unknown')
+                    func_args = item.get('arguments', '{}')
+                    record_text(f'[Tool Call: {func_name}] {func_args}')
 
     final_text = '\n'.join(text_parts).strip()
     if not final_text:
