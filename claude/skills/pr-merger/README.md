@@ -70,17 +70,20 @@ Check GitHub Actions → Identify failures → Fix issues → Run tests → Push
 ### Phase 2: CodeRabbit Feedback
 
 ```
-Fetch comments → Apply fixes → Test → Push → Post response → Wait for CodeRabbit → Repeat
+Fetch comments → Apply ALL fixes (NO SKIPPING) → Test → Push → Post response → Wait for CodeRabbit → Repeat
 ```
 
 - Fetches only NEW comments since last commit (uses timestamps)
-- Applies all suggested fixes
+- **MUST apply fixes for ALL comments - NO exceptions, NO skipping**
+- **NO authority to judge which comments are "important enough" to fix**
+- Fixes EVERY comment regardless of severity (Trivial, Minor, Major, Critical)
 - Runs tests before pushing (safety check)
 - Posts response tagging @coderabbitai
 - Polls for CodeRabbit response (15s intervals, 3 min max)
 - Parses response to check if satisfied or more issues
 - Loops until CodeRabbit confirms resolution
 - Max 5 iterations
+- **If max iterations reached with unresolved comments: merge FAILS**
 
 ### Phase 3: Merge PR
 
@@ -173,16 +176,24 @@ Switch to main → Pull latest → Delete local branch → Delete remote branch
 ### 🛡️ Never Pushes Failing Tests
 All tests must pass locally before any push. If tests fail, the agent STOPS and reports to you.
 
+### 🚫 NEVER Skips CodeRabbit Feedback
+**CRITICAL**: The agent has **ZERO authority** to skip ANY CodeRabbit comments.
+- ALL comments must be addressed (Trivial, Minor, Major, Critical)
+- NO judgment calls about which comments are "important enough"
+- If max iterations reached with unresolved comments: **merge FAILS**
+
 ### 🔄 Iteration Limits
 - Max 5 CI fix attempts (configurable)
 - Max 5 CodeRabbit feedback loops (configurable)
 - Prevents infinite loops
+- **If limits reached with unresolved issues: FAILS instead of proceeding**
 
 ### 🔒 Protected Branch Detection
 Never deletes main, master, develop, staging, or production branches.
 
 ### ✅ Pre-Merge Validation
 - All CI checks must pass
+- All CodeRabbit comments must be resolved
 - No merge conflicts
 - PR must be in mergeable state
 - Reports if approvals required
