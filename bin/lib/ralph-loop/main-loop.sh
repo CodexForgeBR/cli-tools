@@ -170,9 +170,6 @@ main_find_tasks() {
 # main_handle_resume() - Detect interrupted session, load state, show resume info
 # ----------------------------------------------------------------------------
 main_handle_resume() {
-    local -n resuming_ref=$1
-    local -n iteration_ref=$2
-    local -n feedback_ref=$3
     
     log_debug "Checking for resume state..."
     
@@ -286,10 +283,10 @@ PYTHON_EOF
             show_resume_summary "$ITERATION" "$CURRENT_PHASE" "$stored_status"
 
             # Restore from loaded state
-            iteration_ref=$ITERATION
+            iteration=$ITERATION
             CURRENT_ITERATION=$ITERATION  # Update global for cleanup handler
-            feedback_ref="$LAST_FEEDBACK"
-            resuming_ref=1
+            feedback="$LAST_FEEDBACK"
+            resuming=1
 
             # Signal to use saved retry state when we reach the phase
             # Only set if we have a non-default retry state (attempt > 1 means we were mid-retry)
@@ -298,7 +295,7 @@ PYTHON_EOF
                 log_info "Will resume from retry attempt $CURRENT_RETRY_ATTEMPT with ${CURRENT_RETRY_DELAY}s delay"
             fi
 
-            log_info "Resumed from iteration $iteration_ref, phase: $CURRENT_PHASE"
+            log_info "Resumed from iteration $iteration, phase: $CURRENT_PHASE"
 
             if [[ -z "$OVERRIDE_MODELS" ]]; then
                 log_info "Using models from saved state/defaults"
@@ -311,14 +308,14 @@ PYTHON_EOF
         fi
     fi
     
-    log_debug "Resume handling complete (resuming=${resuming_ref})"
+    log_debug "Resume handling complete (resuming=${resuming})"
 }
 
 # ----------------------------------------------------------------------------
 # main_validate_setup() - Validate model/AI combinations, tasks hash
 # ----------------------------------------------------------------------------
 main_validate_setup() {
-    local resuming=$1
+
     
     log_debug "Validating setup..."
     
@@ -394,7 +391,7 @@ main_validate_setup() {
 # main_fetch_github_issue() - Fetch issue body if --github-issue provided
 # ----------------------------------------------------------------------------
 main_fetch_github_issue() {
-    local resuming=$1
+
     
     log_debug "Checking for GitHub issue to fetch..."
     
@@ -469,7 +466,7 @@ main_fetch_github_issue() {
 # main_tasks_validation() - Run tasks-vs-plan validation (iteration 1 only)
 # ----------------------------------------------------------------------------
 main_tasks_validation() {
-    local resuming=$1
+
     
     log_debug "Checking if tasks validation should run..."
     
@@ -643,7 +640,7 @@ except Exception as e:
 # main_handle_schedule() - Wait for --start-at time
 # ----------------------------------------------------------------------------
 main_handle_schedule() {
-    local resuming=$1
+
     
     log_debug "Checking for scheduled start time..."
     
@@ -855,26 +852,23 @@ main_exit_success() {
 # main_iteration_loop() - The while loop driving impl + validation iterations
 # ----------------------------------------------------------------------------
 main_iteration_loop() {
-    local -n iteration_ref=$1
-    local -n resuming_ref=$2
-    local -n feedback_ref=$3
     
     log_debug "Starting iteration loop..."
     
-    while [[ $iteration_ref -lt $MAX_ITERATIONS ]]; do
+    while [[ $iteration -lt $MAX_ITERATIONS ]]; do
         # Declare output file variables at loop scope
         local impl_output_file=""
         local val_output_file=""
         local skip_implementation=0
 
         # If resuming and we're at the saved iteration, handle phase-aware resumption
-        if [[ $resuming_ref -eq 1 && $iteration_ref -eq $ITERATION ]]; then
-            resuming_ref=0  # Only resume once
+        if [[ $resuming -eq 1 && $iteration -eq $ITERATION ]]; then
+            resuming=0  # Only resume once
 
             if [[ "$CURRENT_PHASE" == "cross_validation" ]]; then
                 # Skip to cross-validation if we were interrupted during cross-validation
-                impl_output_file="$STATE_DIR/impl-output-${iteration_ref}.txt"
-                val_output_file="$STATE_DIR/val-output-${iteration_ref}.txt"
+                impl_output_file="$STATE_DIR/impl-output-${iteration}.txt"
+                val_output_file="$STATE_DIR/val-output-${iteration}.txt"
 
                 if [[ -f "$impl_output_file" && -f "$val_output_file" ]]; then
                     log_info "Resuming at cross-validation phase (implementation and validation already completed)"
@@ -883,26 +877,26 @@ main_iteration_loop() {
                     ITERATION_START_TIME=$(get_timestamp)
 
                     echo -e "\n${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
-                    echo -e "${YELLOW}          ITERATION $iteration_ref / $MAX_ITERATIONS (RESUMED)${NC}"
+                    echo -e "${YELLOW}          ITERATION $iteration / $MAX_ITERATIONS (RESUMED)${NC}"
                     echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}\n"
 
                     # Run post-validation chain (cross-validation + final plan validation)
                     local chain_result
                     set +e
-                    chain_result=$(main_run_post_validation_chain "$iteration_ref" "$val_output_file" "$impl_output_file")
+                    chain_result=$(main_run_post_validation_chain "$iteration" "$val_output_file" "$impl_output_file")
                     local chain_exit=$?
                     set -e
 
                     if [[ $chain_exit -eq 0 && "$chain_result" == "CONFIRMED" ]]; then
                         # SUCCESS - all validations passed
-                        main_exit_success "$iteration_ref" 0
+                        main_exit_success "$iteration" 0
                     else
                         # REJECTED or NOT_IMPLEMENTED - extract feedback and continue
                         local verdict_type="${chain_result%%:*}"
                         local chain_feedback="${chain_result#*:}"
                         
-                        feedback_ref="$chain_feedback"
-                        LAST_FEEDBACK="$feedback_ref"
+                        feedback="$chain_feedback"
+                        LAST_FEEDBACK="$feedback"
                         log_warn "$verdict_type - continuing to next iteration"
                         continue
                     fi
@@ -911,7 +905,7 @@ main_iteration_loop() {
                 fi
             elif [[ "$CURRENT_PHASE" == "validation" ]]; then
                 # Skip to validation if we were interrupted during validation
-                impl_output_file="$STATE_DIR/impl-output-${iteration_ref}.txt"
+                impl_output_file="$STATE_DIR/impl-output-${iteration}.txt"
 
                 if [[ -f "$impl_output_file" ]]; then
                     log_info "Resuming at validation phase (implementation already completed)"
@@ -920,15 +914,15 @@ main_iteration_loop() {
                     ITERATION_START_TIME=$(get_timestamp)
 
                     echo -e "\n${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
-                    echo -e "${YELLOW}          ITERATION $iteration_ref / $MAX_ITERATIONS (RESUMED)${NC}"
+                    echo -e "${YELLOW}          ITERATION $iteration / $MAX_ITERATIONS (RESUMED)${NC}"
                     echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}\n"
 
                     # Save state before validation
                     CURRENT_PHASE="validation"
-                    save_state "running" "$iteration_ref"
+                    save_state "running" "$iteration"
 
                     # Run validation
-                    val_output_file=$(run_validation "$iteration_ref" "$impl_output_file")
+                    val_output_file=$(run_validation "$iteration" "$impl_output_file")
 
                     # Continue to verdict parsing below
                 else
@@ -938,8 +932,8 @@ main_iteration_loop() {
                 log_info "Resuming at implementation phase"
             fi
         else
-            iteration_ref=$((iteration_ref + 1))
-            CURRENT_ITERATION=$iteration_ref  # Update global for cleanup handler
+            iteration=$((iteration + 1))
+            CURRENT_ITERATION=$iteration  # Update global for cleanup handler
         fi
 
         # Run normal iteration flow if not skipping implementation
@@ -947,16 +941,16 @@ main_iteration_loop() {
             ITERATION_START_TIME=$(get_timestamp)
 
             echo -e "\n${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
-            echo -e "${YELLOW}                    ITERATION $iteration_ref / $MAX_ITERATIONS${NC}"
+            echo -e "${YELLOW}                    ITERATION $iteration / $MAX_ITERATIONS${NC}"
             echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}\n"
 
             # Save state before implementation
             CURRENT_PHASE="implementation"
-            save_state "running" "$iteration_ref"
+            save_state "running" "$iteration"
 
             # Run implementation and capture exit code
             set +e  # Temporarily disable exit on error
-            impl_output_file=$(run_implementation "$iteration_ref" "$feedback_ref")
+            impl_output_file=$(run_implementation "$iteration" "$feedback")
             impl_exit_code=$?
             set -e  # Re-enable exit on error
 
@@ -965,9 +959,9 @@ main_iteration_loop() {
                 local iter_elapsed=$(($(get_timestamp) - ITERATION_START_TIME))
                 local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
                 log_warn "Skipping validation - implementation phase failed after all retries"
-                log_info "Iteration $iteration_ref completed in $(format_duration $iter_elapsed) (total: $(format_duration $total_elapsed))"
-                feedback_ref="Implementation failed in previous iteration. Please try again with a fresh approach."
-                LAST_FEEDBACK="$feedback_ref"
+                log_info "Iteration $iteration completed in $(format_duration $iter_elapsed) (total: $(format_duration $total_elapsed))"
+                feedback="Implementation failed in previous iteration. Please try again with a fresh approach."
+                LAST_FEEDBACK="$feedback"
                 continue
             fi
 
@@ -976,20 +970,20 @@ main_iteration_loop() {
                 local new_learnings
                 new_learnings=$(extract_learnings "$impl_output_file")
                 if [[ -n "$new_learnings" ]]; then
-                    append_learnings "$iteration_ref" "$new_learnings"
+                    append_learnings "$iteration" "$new_learnings"
                 fi
             fi
 
             # Save state before validation
             CURRENT_PHASE="validation"
-            save_state "running" "$iteration_ref"
+            save_state "running" "$iteration"
 
             # Run validation
-            val_output_file=$(run_validation "$iteration_ref" "$impl_output_file")
+            val_output_file=$(run_validation "$iteration" "$impl_output_file")
         fi
 
         # Parse validation output and handle verdict
-        main_handle_verdict "$iteration_ref" "$val_output_file" "$impl_output_file" feedback_ref
+        main_handle_verdict "$iteration" "$val_output_file" "$impl_output_file" feedback
     done
 
     # Max iterations reached
@@ -1023,7 +1017,6 @@ main_handle_verdict() {
     local iteration=$1
     local val_output_file=$2
     local impl_output_file=$3
-    local -n feedback_ref=$4
     
     log_debug "Handling validation verdict..."
     
@@ -1040,8 +1033,8 @@ main_handle_verdict() {
 
         # Do NOT assume completion when JSON parse fails - this is unsafe
         # Instead, provide feedback and retry the validation phase
-        feedback_ref="Validation did not provide structured JSON output. This is required for verification. Please re-run validation with proper JSON format. ($current_unchecked tasks marked as unchecked, but this cannot be safely verified without structured output.)"
-        LAST_FEEDBACK="$feedback_ref"  # Store for state saving
+        feedback="Validation did not provide structured JSON output. This is required for verification. Please re-run validation with proper JSON format. ($current_unchecked tasks marked as unchecked, but this cannot be safely verified without structured output.)"
+        LAST_FEEDBACK="$feedback"  # Store for state saving
         log_warn "Cannot verify completion without structured JSON - continuing to retry validation"
         return
     fi
@@ -1082,17 +1075,17 @@ main_handle_verdict() {
                     local verdict_type="${chain_result%%:*}"
                     local chain_feedback="${chain_result#*:}"
                     
-                    feedback_ref="$chain_feedback"
-                    LAST_FEEDBACK="$feedback_ref"
+                    feedback="$chain_feedback"
+                    LAST_FEEDBACK="$feedback"
                     log_warn "$verdict_type - continuing loop"
-                    log_info "Feedback: $feedback_ref"
+                    log_info "Feedback: $feedback"
                     # Continue loop (don't exit)
                 fi
             elif [[ $doable_unchecked -gt 0 ]]; then
                 # Override COMPLETE - there are still doable tasks
                 log_warn "Validator said COMPLETE but $doable_unchecked tasks remain unchecked and not blocked"
-                feedback_ref="Validator incorrectly claimed completion. $doable_unchecked tasks still unchecked and doable. Continue implementation."
-                LAST_FEEDBACK="$feedback_ref"
+                feedback="Validator incorrectly claimed completion. $doable_unchecked tasks still unchecked and doable. Continue implementation."
+                LAST_FEEDBACK="$feedback"
             elif [[ $blocked_count -gt 0 ]]; then
                 # All remaining are blocked - partial success
                 local iter_elapsed=$(($(get_timestamp) - ITERATION_START_TIME))
@@ -1122,20 +1115,20 @@ main_handle_verdict() {
             ;;
 
         NEEDS_MORE_WORK)
-            feedback_ref=$(parse_feedback "$val_json")
-            LAST_FEEDBACK="$feedback_ref"  # Store for state saving
-            log_info "Feedback: $feedback_ref"
+            feedback=$(parse_feedback "$val_json")
+            LAST_FEEDBACK="$feedback"  # Store for state saving
+            log_info "Feedback: $feedback"
             ;;
 
         ESCALATE)
             local total_elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
             log_error "Validator requested escalation - human intervention needed"
-            feedback_ref=$(parse_feedback "$val_json")
-            LAST_FEEDBACK="$feedback_ref"  # Store for state saving
-            log_info "Escalation reason: $feedback_ref"
+            feedback=$(parse_feedback "$val_json")
+            LAST_FEEDBACK="$feedback"  # Store for state saving
+            log_info "Escalation reason: $feedback"
             CURRENT_PHASE="escalated"
             save_state "ESCALATED" "$iteration" "ESCALATE"
-            log_summary "ESCALATED: $feedback_ref ($(format_duration $total_elapsed))"
+            log_summary "ESCALATED: $feedback ($(format_duration $total_elapsed))"
 
             echo -e "\n${RED}╔═══════════════════════════════════════════════════════════════╗${NC}"
             echo -e "${RED}║                    ESCALATION REQUESTED                       ║${NC}"
@@ -1143,10 +1136,10 @@ main_handle_verdict() {
             echo -e "${RED}╠═══════════════════════════════════════════════════════════════╣${NC}"
             printf "${RED}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
             echo -e "${RED}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
-            echo -e "Reason: $feedback_ref\n"
+            echo -e "Reason: $feedback\n"
 
             # Send escalation notification
-            send_notification "escalate" "Needs human escalation: $feedback_ref ($(format_duration $total_elapsed))" $EXIT_ESCALATE
+            send_notification "escalate" "Needs human escalation: $feedback ($(format_duration $total_elapsed))" $EXIT_ESCALATE
 
             exit $EXIT_ESCALATE
             ;;
@@ -1155,8 +1148,8 @@ main_handle_verdict() {
             # Increment inadmissible counter
             ((INADMISSIBLE_COUNT++)) || true
 
-            feedback_ref=$(parse_feedback "$val_json")
-            LAST_FEEDBACK="$feedback_ref"
+            feedback=$(parse_feedback "$val_json")
+            LAST_FEEDBACK="$feedback"
             log_error "INADMISSIBLE PRACTICE DETECTED (count: $INADMISSIBLE_COUNT/$MAX_INADMISSIBLE)"
             log_summary "ITERATION $iteration: INADMISSIBLE (count: $INADMISSIBLE_COUNT)"
 
@@ -1166,7 +1159,7 @@ main_handle_verdict() {
                 log_error "MAX INADMISSIBLE VIOLATIONS REACHED - Escalating to human"
                 CURRENT_PHASE="inadmissible_escalated"
                 save_state "INADMISSIBLE_ESCALATED" "$iteration" "INADMISSIBLE"
-                log_summary "INADMISSIBLE ESCALATED: $feedback_ref ($(format_duration $total_elapsed))"
+                log_summary "INADMISSIBLE ESCALATED: $feedback ($(format_duration $total_elapsed))"
 
                 echo -e "\n${RED}╔═══════════════════════════════════════════════════════════════╗${NC}"
                 echo -e "${RED}║         REPEATED INADMISSIBLE PRACTICE - ESCALATING          ║${NC}"
@@ -1176,7 +1169,7 @@ main_handle_verdict() {
                 printf "${RED}║  Violations: %-3d/%-3d         Total time: %-18s║${NC}\n" "$INADMISSIBLE_COUNT" "$MAX_INADMISSIBLE" "$(format_duration $total_elapsed)"
                 echo -e "${RED}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
                 echo -e "${RED}INADMISSIBLE PRACTICE (repeated $INADMISSIBLE_COUNT times):${NC}"
-                echo -e "$feedback_ref\n"
+                echo -e "$feedback\n"
                 echo -e "${YELLOW}The implementation model repeatedly used forbidden approaches.${NC}"
                 echo -e "${YELLOW}This requires human intervention to redesign the solution.${NC}\n"
 
@@ -1197,7 +1190,7 @@ main_handle_verdict() {
             printf "${RED}║  Iteration: %-3d              Violations: %-3d/%-3d         ║${NC}\n" "$iteration" "$INADMISSIBLE_COUNT" "$MAX_INADMISSIBLE"
             echo -e "${RED}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
             echo -e "${RED}INADMISSIBLE PRACTICE:${NC}"
-            echo -e "$feedback_ref\n"
+            echo -e "$feedback\n"
             echo -e "${YELLOW}You MUST fix this fundamental issue. Read the feedback carefully.${NC}"
             echo -e "${YELLOW}Warning: $INADMISSIBLE_COUNT/$MAX_INADMISSIBLE violations. Further violations will escalate.${NC}\n"
 
@@ -1223,8 +1216,8 @@ main_handle_verdict() {
             if [[ $doable_unchecked -gt 0 ]]; then
                 # Some tasks are still doable, continue loop
                 log_info "$blocked_count tasks blocked, but $doable_unchecked tasks still doable"
-                feedback_ref="$blocked_count tasks confirmed blocked. Focus on remaining $doable_unchecked doable tasks."
-                LAST_FEEDBACK="$feedback_ref"
+                feedback="$blocked_count tasks confirmed blocked. Focus on remaining $doable_unchecked doable tasks."
+                LAST_FEEDBACK="$feedback"
             else
                 # All unchecked tasks are blocked
                 log_error "All remaining tasks are blocked - human intervention required"
@@ -1250,8 +1243,8 @@ main_handle_verdict() {
 
         *)
             log_warn "Unknown verdict: $verdict, continuing"
-            feedback_ref="Validation returned unclear verdict ($verdict). Please continue with remaining tasks."
-            LAST_FEEDBACK="$feedback_ref"  # Store for state saving
+            feedback="Validation returned unclear verdict ($verdict). Please continue with remaining tasks."
+            LAST_FEEDBACK="$feedback"  # Store for state saving
             ;;
     esac
 
@@ -1269,11 +1262,11 @@ main() {
     # Set up trap handlers
     trap 'cleanup SIGINT' SIGINT
     trap 'cleanup SIGTERM' SIGTERM
-    
-    # Declare iteration variable at function scope
-    local iteration=0
-    local feedback=""
-    local resuming=0
+
+    # Declare shared variables (used across sub-functions)
+    iteration=0
+    feedback=""
+    resuming=0
 
     # Phase 1: Initialize configuration and parse arguments
     main_init "$@"
@@ -1288,22 +1281,22 @@ main() {
     main_find_tasks
 
     # Phase 5: Handle resume logic (load state if resuming)
-    main_handle_resume resuming iteration feedback
+    main_handle_resume
 
     # Phase 6: Validate setup (models, schedule, initial task count)
-    main_validate_setup $resuming
+    main_validate_setup
 
     # Phase 7: Fetch GitHub issue if needed
-    main_fetch_github_issue $resuming
+    main_fetch_github_issue
 
     # Phase 8: Run tasks validation (if original plan provided)
-    main_tasks_validation $resuming
+    main_tasks_validation
 
     # Phase 9: Handle scheduled start time
-    main_handle_schedule $resuming
+    main_handle_schedule
 
     # Phase 10: Run the main iteration loop
-    main_iteration_loop iteration resuming feedback
+    main_iteration_loop
 }
 
 # Only run main if this script is executed directly (not sourced)
