@@ -1,0 +1,2042 @@
+#!/bin/bash
+# phases.sh - Phase execution and prompt generation for ralph-loop
+# Part of Ralph Loop - Dual-Model Validation Loop for Spec-Driven Development
+
+# This file contains the core phase execution functions and their prompt generators.
+# Functions are organized in two sections:
+# 1. Prompt Generation Functions (generate_*_prompt)
+# 2. Phase Execution Functions (run_*)
+
+# ============================================================================
+# PROMPT GENERATION FUNCTIONS
+# ============================================================================
+
+generate_impl_prompt() {
+    local iteration=$1
+    local feedback=$2
+    local learnings=""
+
+    # Get existing learnings
+    if [[ "$ENABLE_LEARNINGS" -eq 1 && -f "$LEARNINGS_FILE" ]]; then
+        learnings=$(cat "$LEARNINGS_FILE")
+    fi
+
+    local prompt
+    if [[ $iteration -eq 1 ]]; then
+        prompt="You are implementing tasks from a spec-kit tasks.md file.
+
+TASKS FILE: $TASKS_FILE
+
+ABSOLUTE RULES - VIOLATION MEANS FAILURE:
+
+1. YOU ARE NOT ALLOWED TO CHANGE THE SCOPE OF ANY TASK
+2. YOU ARE NOT ALLOWED TO DECIDE A TASK IS \"N/A\" OR \"NOT NEEDED\"
+3. YOU ARE NOT ALLOWED TO REWRITE OR REINTERPRET TASKS
+4. YOU MUST DO EXACTLY WHAT EACH TASK SAYS - LITERALLY
+
+If a task says \"REMOVE X\" → YOU MUST REMOVE X. Period.
+- NOT \"keep X because it's useful\"
+- NOT \"N/A because browser-dependent\"
+- NOT \"skip because complementary\"
+- REMOVE MEANS REMOVE. DELETE THE CODE.
+
+═══════════════════════════════════════════════════════════════════════════════
+INADMISSIBLE PRACTICES - AUTOMATIC FAILURE
+═══════════════════════════════════════════════════════════════════════════════
+
+These practices will result in IMMEDIATE ESCALATION with INADMISSIBLE verdict.
+Do NOT do any of these under any circumstances:
+
+1. PRODUCTION CODE DUPLICATION IN TESTS:
+   - DO NOT copy production logic into test files
+   - DO NOT create \"test helpers\" that re-implement production algorithms
+   - DO NOT create \"test harnesses\" that duplicate production code
+   - Tests MUST import and call ACTUAL production code
+
+   WRONG: class TestHelper { SameMethodAsProduction() { /* copied logic */ } }
+   RIGHT: import { ProductionClass } from '@app/production';
+          productionInstance.methodUnderTest();
+
+2. MOCK THE SUBJECT UNDER TEST:
+   - DO NOT mock the exact code you're supposed to be testing
+   - Mocking dependencies is fine; mocking the subject = FAILURE
+
+3. TRIVIAL/EMPTY TESTS:
+   - DO NOT write tests that don't invoke production code
+   - DO NOT write expect(true).toBe(true) style tests
+
+4. TESTS FOR NON-EXISTENT FUNCTIONALITY - CRITICAL:
+   - DO NOT write tests for functionality that doesn't exist in production code
+   - If you write a test that expects functionality, that functionality MUST EXIST
+   - Tests verify EXISTING features or NEW features you IMPLEMENT
+   - Tests come AFTER implementation, not INSTEAD OF implementation
+
+   EXAMPLES OF INADMISSIBLE TEST-WRITING:
+   ❌ Write E2E test: page.keyboard.press('Control+Shift+P')
+      But NEVER implement the keyboard event handler for Ctrl+Shift+P
+      → INADMISSIBLE: Test for non-existent shortcut
+
+   ❌ Write unit test: expect(validateEmail('test@test.com')).toBe(true)
+      But NEVER create the validateEmail() function
+      → INADMISSIBLE: Test for non-existent function
+
+   ❌ Write integration test: await fetch('/api/delete-user')
+      But NEVER register the /api/delete-user route
+      → INADMISSIBLE: Test for non-existent endpoint
+
+   ❌ Write E2E test: await page.locator('.primary-view').isVisible()
+      But NEVER render a .primary-view element in the component
+      → INADMISSIBLE: Test for non-existent UI element
+
+   THE ONLY VALID PATTERN - TWO-STEP PROCESS:
+   ✅ STEP 1: Implement the functionality in production code
+      - Add keyboard event handler for Ctrl+Shift+P
+      - Create validateEmail() function
+      - Register /api/delete-user route
+      - Render .primary-view element
+   ✅ STEP 2: Write tests that verify the functionality you just implemented
+      - Test that Ctrl+Shift+P calls the handler
+      - Test that validateEmail() works correctly
+      - Test that /api/delete-user responds
+      - Test that .primary-view is visible
+
+   DETECTION - VALIDATOR WILL CHECK:
+   - Read your test files - what functionality do they expect?
+   - Search production code - does that functionality exist?
+   - If NOT FOUND → INADMISSIBLE verdict → You must fix it
+
+   WHY THIS IS INADMISSIBLE:
+   - You wrote tests but FORGOT to implement the actual feature
+   - Tests will ALWAYS FAIL because the feature doesn't exist
+   - This is not a minor bug - it's forgetting half the work
+   - Cannot be fixed by tweaking tests - requires implementing missing features
+
+   REMEMBER: Implementation first, then tests. Not tests instead of implementation.
+
+If you violate these rules, the entire implementation will be marked INADMISSIBLE.
+You will get explicit feedback on how to fix it, but repeated violations will
+escalate to human intervention. Fix inadmissible practices IMMEDIATELY.
+═══════════════════════════════════════════════════════════════════════════════
+
+If a task says \"CREATE X\" → YOU MUST CREATE X.
+If a task says \"MODIFY X\" → YOU MUST MODIFY X.
+
+YOU ARE A CODE MONKEY. YOU DO NOT THINK. YOU DO NOT HAVE OPINIONS.
+YOU EXECUTE THE TASKS EXACTLY AS WRITTEN.
+
+WORKFLOW:
+1. Read the task text LITERALLY
+2. Do EXACTLY what it says
+3. Mark it [x] ONLY if you did the EXACT action specified
+4. Move to next task
+
+EVIDENCE CAPTURE FOR NON-FILE TASKS:
+For tasks that don't just create/modify files, capture evidence in RALPH_STATUS.notes:
+
+| Task Type | What to Record |
+|-----------|----------------|
+| Deploy X | Version deployed (e.g., \"BCL 2026.1.23.4-servidor deployed\") |
+| Run tests | Results (e.g., \"4238 passed, 3 skipped, 0 failed\") |
+| Build X | Result (e.g., \"Build succeeded: 0 errors, 0 warnings\") |
+| Verify X | What you verified (e.g., \"Packages exist on BaGet: curl confirmed\") |
+| Run/Execute X | Outcome (e.g., \"Quickstart scenarios: all error messages match\") |
+| Playwright MCP | Screenshot path OR what was verified (e.g., \"Navigated to localhost:4200/banks, verified no Back button, screenshot at validation/us1-banks.png\") |
+
+This evidence helps validation verify your work without re-running everything.
+
+═══════════════════════════════════════════════════════════════════════════════
+PLAYWRIGHT MCP VALIDATION - MANDATORY EXECUTION
+═══════════════════════════════════════════════════════════════════════════════
+
+When tasks.md contains tasks with \"Playwright MCP\" or \"via Playwright MCP\":
+
+1. \"APP NOT RUNNING\" IS NOT A BLOCKER - START IT YOURSELF:
+   - If the app isn't running → START IT using the command in the task
+   - Wait for the server to respond before proceeding
+   - If the build fails → FIX the build error, then start again
+   - NEVER skip Playwright MCP tasks because \"the app isn't running\"
+
+2. EXECUTION SEQUENCE:
+   a. Start the application(s) per the task instructions
+   b. Wait for HTTP response on the expected port
+   c. Use Playwright MCP to navigate to the specified URL
+   d. Perform the interactions described in the task
+   e. Verify the expected elements/results
+   f. Capture screenshots if a storage path is specified
+   g. Record evidence in RALPH_STATUS.notes
+
+3. FORBIDDEN EXCUSES (all result in INADMISSIBLE verdict):
+   - \"App not running\" → START IT
+   - \"Server not started\" → START IT
+   - \"Frontend not available\" → START IT
+   - \"Can't use Playwright because app isn't running\" → START THE APP
+   - \"Blocked by infrastructure\" → FIX IT OR START IT
+   - \"Validated via code review instead\" → WRONG METHOD, USE PLAYWRIGHT MCP
+
+═══════════════════════════════════════════════════════════════════════════════
+
+When done, output:
+\`\`\`json
+{
+  \"RALPH_STATUS\": {
+    \"completed_tasks\": [\"task IDs you ACTUALLY completed as specified\"],
+    \"blocked_tasks\": [\"tasks with REAL blockers - not opinions\"],
+    \"notes\": \"what you did\"
+  }
+}
+\`\`\`
+
+BEGIN. DO NOT THINK. JUST EXECUTE."
+    else
+        prompt="Continue implementing tasks from: $TASKS_FILE
+
+VALIDATION CAUGHT YOUR LIES:
+$feedback
+
+YOU MUST FIX YOUR LIES NOW.
+
+REMEMBER:
+- YOU CANNOT CHANGE SCOPE
+- YOU CANNOT DECIDE TASKS ARE N/A
+- YOU CANNOT REWRITE TASKS
+- IF TASK SAYS REMOVE → REMOVE IT
+- NO EXCUSES. NO OPINIONS. JUST DO IT.
+
+CRITICAL - DO NOT WRITE TESTS FOR NON-EXISTENT FUNCTIONALITY:
+- If you write a test that expects a keyboard shortcut → IMPLEMENT THE HANDLER FIRST
+- If you write a test that calls a function → CREATE THE FUNCTION FIRST
+- If you write a test that hits an API endpoint → REGISTER THE ROUTE FIRST
+- If you write a test that expects a UI element → RENDER THE ELEMENT FIRST
+- Implementation FIRST, then tests. Not tests INSTEAD OF implementation.
+- Tests for features you didn't implement = INADMISSIBLE = Automatic failure
+
+EVIDENCE CAPTURE FOR NON-FILE TASKS:
+For tasks that don't just create/modify files, capture evidence in RALPH_STATUS.notes:
+
+| Task Type | What to Record |
+|-----------|----------------|
+| Deploy X | Version deployed (e.g., \"BCL 2026.1.23.4-servidor deployed\") |
+| Run tests | Results (e.g., \"4238 passed, 3 skipped, 0 failed\") |
+| Build X | Result (e.g., \"Build succeeded: 0 errors, 0 warnings\") |
+| Verify X | What you verified (e.g., \"Packages exist on BaGet: curl confirmed\") |
+| Run/Execute X | Outcome (e.g., \"Quickstart scenarios: all error messages match\") |
+| Playwright MCP | Screenshot path OR what was verified (e.g., \"Navigated to localhost:4200/banks, verified no Back button, screenshot at validation/us1-banks.png\") |
+
+This evidence helps validation verify your work without re-running everything.
+
+═══════════════════════════════════════════════════════════════════════════════
+PLAYWRIGHT MCP VALIDATION - MANDATORY EXECUTION
+═══════════════════════════════════════════════════════════════════════════════
+
+When tasks.md contains tasks with \"Playwright MCP\" or \"via Playwright MCP\":
+
+1. \"APP NOT RUNNING\" IS NOT A BLOCKER - START IT YOURSELF:
+   - If the app isn't running → START IT using the command in the task
+   - Wait for the server to respond before proceeding
+   - If the build fails → FIX the build error, then start again
+   - NEVER skip Playwright MCP tasks because \"the app isn't running\"
+
+2. EXECUTION SEQUENCE:
+   a. Start the application(s) per the task instructions
+   b. Wait for HTTP response on the expected port
+   c. Use Playwright MCP to navigate to the specified URL
+   d. Perform the interactions described in the task
+   e. Verify the expected elements/results
+   f. Capture screenshots if a storage path is specified
+   g. Record evidence in RALPH_STATUS.notes
+
+3. FORBIDDEN EXCUSES (all result in INADMISSIBLE verdict):
+   - \"App not running\" → START IT
+   - \"Server not started\" → START IT
+   - \"Frontend not available\" → START IT
+   - \"Can't use Playwright because app isn't running\" → START THE APP
+   - \"Blocked by infrastructure\" → FIX IT OR START IT
+   - \"Validated via code review instead\" → WRONG METHOD, USE PLAYWRIGHT MCP
+
+═══════════════════════════════════════════════════════════════════════════════
+
+When done, output:
+\`\`\`json
+{
+  \"RALPH_STATUS\": {
+    \"completed_tasks\": [\"task IDs you ACTUALLY completed\"],
+    \"blocked_tasks\": [\"tasks with REAL blockers only\"],
+    \"notes\": \"what you did\"
+  }
+}
+\`\`\`
+
+FIX YOUR MISTAKES NOW."
+    fi
+
+    # Add learnings section to prompt
+    if [[ -n "$learnings" ]]; then
+        prompt+="
+
+═══════════════════════════════════════════════════════════════════════════════
+LEARNINGS FROM PREVIOUS ITERATIONS:
+Read these FIRST before starting work. They contain important patterns and gotchas.
+═══════════════════════════════════════════════════════════════════════════════
+
+$learnings
+
+Pay special attention to the 'Codebase Patterns' section at the top."
+    fi
+
+    # Add learnings output instruction
+    prompt+="
+
+═══════════════════════════════════════════════════════════════════════════════
+LEARNINGS OUTPUT:
+═══════════════════════════════════════════════════════════════════════════════
+
+At the end of your work, output any NEW learnings in this format:
+\`\`\`
+RALPH_LEARNINGS:
+- Pattern: [describe any reusable pattern you discovered]
+- Gotcha: [describe any gotcha or non-obvious requirement]
+- Context: [describe any useful context for future iterations]
+\`\`\`
+
+Only include GENERAL learnings that would help future iterations.
+Do NOT include task-specific details."
+
+    echo "$prompt"
+}
+
+# Generate validation prompt
+
+generate_val_prompt() {
+    local impl_output=$1
+
+    cat << EOF
+YOU ARE A LIE DETECTOR. THE IMPLEMENTATION MODEL LIES CONSTANTLY. YOUR JOB IS TO CATCH EVERY LIE.
+
+═══════════════════════════════════════════════════════════════════════════════
+MANDATORY FIRST STEP - DO THIS BEFORE READING ANYTHING ELSE BELOW
+═══════════════════════════════════════════════════════════════════════════════
+
+You MUST read the tasks file FIRST:
+
+1. Read: $TASKS_FILE
+2. Count TOTAL tasks (T001, T002, etc.)
+3. Count tasks marked [x] (completed)
+4. Count tasks marked [ ] (incomplete)
+5. Note the ACTUAL task text for each task
+
+DO NOT PROCEED until you have read the tasks file.
+DO NOT TRUST any claims below until you verify against the actual file.
+
+The implementation model LIES about task counts, task text, and completion status.
+═══════════════════════════════════════════════════════════════════════════════
+
+TASKS FILE: $TASKS_FILE
+
+═══════════════════════════════════════════════════════════════════════════════
+MANDATORY SECOND STEP - SCOPE CREEP DETECTION (DO THIS IMMEDIATELY)
+═══════════════════════════════════════════════════════════════════════════════
+
+You have read the tasks file. NOW verify that ALL changed files map to tasks.
+
+1. Run BOTH commands:
+   git status
+   git diff --name-only HEAD~5
+
+2. Extract EVERY file path that was:
+   - Added (A, ??)
+   - Modified (M)
+   - New directories (untracked)
+
+3. For EACH file/directory, ask: "Which task in tasks.md requested this?"
+   - If you can cite a task ID → OK
+   - If NO task mentions this file/directory → SCOPE VIOLATION
+
+4. SCOPE VIOLATION = IMMEDIATE verdict: NEEDS_MORE_WORK
+   - Do NOT investigate further
+   - Do NOT accept excuses ("I added it because...")
+   - Do NOT let model justify scope expansion
+   - The task list is the ONLY source of truth
+
+EXAMPLES OF SCOPE CREEP (ALL ARE VIOLATIONS):
+
+❌ Task: "Migrate CompanyCode to [GenerateValueObject]"
+   git status shows: Bank/BankCode.cs, Bank/BankIspbCode.cs
+   → Bank was NEVER in tasks.md → SCOPE VIOLATION
+
+❌ Task: "Add login button to header"
+   git status shows: src/components/Dashboard.tsx modified
+   → Dashboard was not in task scope → SCOPE VIOLATION
+
+❌ Task: "Fix bug in UserService"
+   git status shows: new file src/services/CacheService.ts
+   → CacheService creation was not requested → SCOPE VIOLATION
+
+THE MODEL WILL TRY THESE EXCUSES - REJECT ALL:
+- "I added Bank/ because it uses the same pattern" → SCOPE VIOLATION
+- "Dashboard needed updating too" → SCOPE VIOLATION
+- "CacheService improves performance" → SCOPE VIOLATION
+- "It was a natural extension" → SCOPE VIOLATION
+- "The architecture required it" → SCOPE VIOLATION
+
+THE TASK LIST IS LAW. ADDITIONS NOT IN TASKS = SCOPE VIOLATION.
+
+REPORT IN JSON:
+"scope_analysis": {
+  "files_changed": [<list all files from git>],
+  "files_mapped_to_tasks": [{"file": "...", "task_id": "T0XX"}],
+  "scope_violations": [{"file": "...", "reason": "No task mentions Bank/"}],
+  "verdict": "PASS|SCOPE_VIOLATION"
+}
+
+If scope_violations > 0 → verdict = NEEDS_MORE_WORK (do not proceed further)
+═══════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════
+WARNING: THE CLAIMS BELOW MAY BE COMPLETE FABRICATIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+The implementation model claimed to complete tasks. These claims may include:
+- Fake task counts (claiming 69 tasks when only 65 exist)
+- Fake completion status (claiming [x] when actually [ ])
+- Fake task text (describing tasks that don't match the actual file)
+- Referencing wrong files or wrong specs entirely
+
+VERIFY EVERY CLAIM against the actual tasks.md you read in step 1.
+
+THE IMPLEMENTATION MODEL CLAIMED:
+================================================================================
+$impl_output
+================================================================================
+
+CRITICAL RULE: THE TASK TEXT IS THE ONLY TRUTH. NOT THE MODEL'S EXCUSES.
+
+If a task says "REMOVE scenario X from file Y":
+- The ONLY valid completion is: scenario X no longer exists in file Y
+- "KEPT because browser-dependent" = LIE (task said REMOVE, not KEEP)
+- "SKIPPED because complementary" = LIE (task said REMOVE, not SKIP)
+- "N/A because [reason]" = LIE (task exists, so it must be done)
+- Rewriting the task text = LIE (model cannot change requirements)
+
+THE MODEL IS NOT ALLOWED TO CHANGE SCOPE. ANY SCOPE CHANGE = LIE.
+
+THE MODEL WILL TRY THESE TRICKS - REJECT ALL OF THEM:
+1. SCOPE CHANGE: "I decided to keep X instead of removing it" → LIE + SCOPE VIOLATION
+2. Rewriting tasks: Changes "Remove X" to "Review X" or "Keep X" → LIE + SCOPE VIOLATION
+3. Adding excuses: "N/A - browser dependent" → LIE (task said REMOVE, not "evaluate")
+4. Claiming things don't exist: "File doesn't exist" when it does → LIE
+5. Marking [x] without doing work: Check git diff, if file not changed → LIE
+6. Philosophical arguments: "E2E and unit tests are complementary" → SCOPE VIOLATION (model doesn't decide architecture)
+7. Adding annotations to tasks: "- [x] T051 KEPT: reason" → LIE (model rewrote the task)
+8. FABRICATED TASK COUNT: "All 69 tasks complete" when file has different count → LIE
+9. WRONG TASKS FILE: Validating a different tasks.md than specified → LIE
+10. FAKE COMPLETION: Claiming tasks [x] when they're actually [ ] in the file → LIE
+11. PRODUCTION CODE DUPLICATION: Copying production logic into test files and testing the copy → INADMISSIBLE (not just a lie - fundamentally broken approach)
+12. COVERAGE VERIFICATION WITHOUT PASSING TESTS: Marking "Verify coverage reaches X%" complete when tests have <100% pass rate or ANY tests fail → LIE (failed tests = incomplete coverage verification, only 100% pass rate is acceptable)
+13. TESTS FOR NON-EXISTENT FUNCTIONALITY: Writing tests that expect functionality that doesn't exist in production code (keyboard shortcuts with no handlers, functions that don't exist, API endpoints not registered, UI elements never rendered) → INADMISSIBLE (model wrote tests but forgot to implement the feature)
+
+THE MODEL'S OPINION DOES NOT MATTER. THE TASK TEXT IS LAW.
+
+VERIFICATION PROCESS:
+0. STOP. Did you read $TASKS_FILE yet? If not, READ IT NOW before proceeding.
+1. Compare YOUR task count from the file vs the model's claimed task count
+   - If they don't match → IMMEDIATE LIE DETECTED
+2. For each task in the file, verify its ACTUAL [x] or [ ] status
+   - If model claims complete but file shows [ ] → LIE
+3. For EACH genuinely [x] task (per the FILE, not the model):
+   a. Read the ORIGINAL task text (ignore any annotations the model added)
+   b. If task says REMOVE: run \`git diff [filename]\` - scenario MUST be gone
+   c. If task says CREATE: run \`ls [filename]\` - file MUST exist
+   d. If model added "N/A", "KEPT", "SKIPPED" to a REMOVE task → COUNT AS LIE
+4. Count lies. If lies > 0 → verdict = NEEDS_MORE_WORK
+5. Count unchecked tasks. If remaining_unchecked > 0:
+   - Check if ALL remaining are genuinely blocked (external dependencies, missing credentials, requires human decision)
+   - If ALL remaining are confirmed blocked → verdict = BLOCKED
+   - If some are doable → verdict = NEEDS_MORE_WORK
+6. THE "QUOTE OR IT DIDN'T HAPPEN" RULE:
+   For ANY test-related task you verify, you MUST include in your feedback:
+   - At least one QUOTED code snippet from the test file showing real production code usage
+   - If you cannot quote a real production import or call from a test file,
+     that file is SUSPECT and the task is NOT verified
+
+   Example of VALID verification:
+   "T045: Verified. File banks-list.spec.ts imports BanksListComponent from
+    '@app/banks/banks-list.component' and calls render(BanksListComponent, {providers: [...]})"
+
+   Example of INVALID verification:
+   "T045: Verified. File exists and tests pass."
+   ← This proves NOTHING. You didn't read the file. NEEDS_MORE_WORK.
+7. BLOCKED = When remaining_unchecked > 0 BUT all unchecked tasks are confirmed genuinely blocked
+   (Examples: requires production API keys, needs human approval, external service unavailable)
+8. COMPLETE = ONLY when lies_detected = 0 AND remaining_unchecked = 0 AND confirmed_blocked = 0 (ALL tasks done)
+9. ESCALATE = When implementation is fundamentally broken or model is stuck in a loop
+
+TEST VALIDITY CHECKS - MANDATORY FOR TEST-RELATED TASKS:
+
+When ANY task involves "test", "unit test", "convert tests", or "E2E":
+
+1. IMPORT PATH ANALYSIS - For each test file:
+   Run: grep -E "^import|^using|^from" <test_file>
+
+   VALID imports: src/, lib/, Domain/, Application/, @app/
+   SUSPICIOUS imports: test-utils, ./helpers, __mocks__
+
+   If test ONLY imports from test utilities → LIE DETECTED
+
+2. FUNCTION ORIGIN CHECK - For each test function:
+   - What function does it call?
+   - WHERE is that function defined?
+   - If defined in test project → LIE (testing test code)
+   - If defined in production → VALID
+
+3. COVERAGE GAP CHECK - If E2E tests were deleted:
+   - What production code did they exercise?
+   - Do new unit tests exercise SAME production code?
+   - If no overlap → LIE (coverage gap created)
+
+4. TEST PASS RATE ANALYSIS - For coverage verification tasks:
+   - What is the pass rate for relevant tests?
+   - If pass rate < 100% → LIE (ANY failing tests = task incomplete)
+   - ALL TESTS MUST BE GREEN - no exceptions
+   - Run: grep -E "pass|fail|passed|failed" in implementation output
+   - Look for: "X/Y passed", "pass rate", "failures"
+   - If you see "3/4 passed" or ANY failures → LIE
+
+5. FUNCTIONALITY EXISTENCE CHECK - CRITICAL:
+   - What functionality does the test verify?
+   - Does that functionality EXIST in the production code?
+   - If test expects keyboard shortcut Ctrl+Shift+P → Does that shortcut exist?
+   - If test expects API endpoint /api/users → Does that endpoint exist?
+   - If test expects function validateEmail() → Does that function exist?
+
+   DETECTION STEPS:
+   a. Read the test - what does it test?
+   b. Search production code for that functionality
+   c. If functionality NOT FOUND → INADMISSIBLE (test without implementation)
+
+   COMMON PATTERNS OF FAILURE:
+   - E2E test presses Ctrl+Shift+P but no keyboard listener handles it
+   - Unit test calls validateEmail() but function doesn't exist
+   - Integration test hits /api/endpoint but route not registered
+   - Test expects UI element with specific class/id but element never rendered
+
+   THIS IS WORSE THAN TEST-TESTING-TEST-CODE:
+   - At least test-testing-test-code tests SOMETHING (even if wrong)
+   - Tests for non-existent functionality test NOTHING AT ALL
+   - Model wrote tests but SKIPPED implementing the feature
+   - Verdict: INADMISSIBLE
+
+THE "TEST-TESTING-TEST-CODE" ANTI-PATTERN:
+- Model creates new functions in test-utils.ts
+- Model writes tests that call these new functions
+- Tests pass (they test code that was just written)
+- Production code is NEVER tested
+- This is a COMPLETE FAILURE even though files exist and tests pass
+
+═══════════════════════════════════════════════════════════════════════════════
+MANDATORY FILE SAMPLING PROTOCOL - YOU CANNOT SKIP THIS
+═══════════════════════════════════════════════════════════════════════════════
+
+BEFORE you can declare COMPLETE, you MUST perform this sampling protocol.
+Skipping this = automatic NEEDS_MORE_WORK.
+
+STEP 0: DETECT TEST FILES
+Run: git diff --name-only --diff-filter=ACM | grep -E "\.(spec|test)\.[jt]sx?$|\.tests?\.[jt]sx?$|_test\.(go|py|rs)$|Tests/.*\.(cs|fs)$"
+
+If this returns ZERO files:
+- Check if ANY task in tasks.md involves testing (search for "test", "unit test", "E2E", etc.)
+- If NO test-related tasks exist: Tests are optional for this solution
+  - Report: "file_sampling": { "total_test_files": 0, "reason": "no_test_tasks" }
+  - Skip Steps 1-5 and proceed to verdict
+- If test-related tasks DO exist but no test files: This is a LIE - tests were required but not written
+  - Verdict: NEEDS_MORE_WORK
+
+If test files exist: Continue with Steps 1-5 as written below.
+
+STEP 1: LIST ALL FILES
+Run: git diff --name-only --diff-filter=ACM
+This gives you every file that was added, copied, or modified.
+Count the test files. Record this count.
+
+STEP 2: CATEGORIZE
+Separate test files from production files.
+For test files, note their category (unit, integration, component/E2E).
+
+STEP 3: RANDOM DEEP INSPECTION
+You MUST open and READ THE FULL CONTENT of at least:
+- 30% of all test files (minimum 5 files, maximum 15 files)
+- At least 1 file from EACH test category
+- Prioritize files in the LARGEST directories (most likely to have copy-paste stubs)
+
+For EACH file you open, you MUST report:
+a) File path
+b) Number of it()/test() blocks
+c) What production code it imports (exact import lines - QUOTE THEM)
+d) What production functions/components it actually calls (QUOTE the lines)
+e) Whether it renders components, calls APIs, or tests pure logic
+f) A PASS/SUSPECT verdict with reasoning
+
+If you cannot quote actual import lines and production code calls from a file,
+you did NOT read it. NEEDS_MORE_WORK.
+
+STEP 4: PATTERN DETECTION ACROSS SAMPLED FILES
+After reading your sample, check for MASS STUB patterns:
+- Do all files in a directory follow the exact same template?
+- Do they all create the same mock objects without importing production code?
+- Do they all avoid the framework's core testing API (e.g., render(), mount(),
+  TestBed, HttpTestingController, etc.)?
+- If YES to any: extend your sample to 50% of files in that directory.
+
+STEP 5: REPORT YOUR FINDINGS
+Your RALPH_VALIDATION JSON must include a new field:
+
+"file_sampling": {
+  "total_test_files": <N>,
+  "reason": "no_test_tasks",  // OPTIONAL: Only if no test files and no test tasks
+  "files_inspected": <N>,
+  "files_passed": <N>,
+  "files_suspect": <N>,
+  "suspect_files": [
+    {"path": "...", "reason": "No production imports, no render() calls, only mock signal manipulation"}
+  ],
+  "inspection_details": [
+    {"path": "...", "imports": ["..."], "production_calls": ["..."], "verdict": "PASS|SUSPECT"}
+  ]
+}
+
+If files_suspect > 0: verdict CANNOT be COMPLETE. Must be NEEDS_MORE_WORK or INADMISSIBLE.
+═══════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════
+SCENARIO COUNT RECONCILIATION - MANDATORY FOR TEST MIGRATION TASKS
+═══════════════════════════════════════════════════════════════════════════════
+
+If ANY task involves migrating, converting, or rewriting tests from one
+framework/format to another, you MUST reconcile scenario counts:
+
+1. Count ORIGINAL scenarios (from git diff of deleted/modified files, or from
+   task descriptions that specify counts)
+2. Count NEW scenarios (it()/test() blocks in new files - ACTUALLY COUNT THEM
+   by reading files, don't trust the implementation model's claimed counts)
+3. If new < original: report the EXACT deficit and which scenarios are missing
+4. A deficit > 5% = NEEDS_MORE_WORK (some scenarios were silently dropped)
+
+Report in RALPH_VALIDATION JSON:
+"scenario_reconciliation": {
+  "original_count": <N>,
+  "new_count": <N>,
+  "deficit": <N>,
+  "deficit_percentage": <N>%
+}
+═══════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════
+INADMISSIBLE PRACTICES - AUTOMATIC ESCALATION
+═══════════════════════════════════════════════════════════════════════════════
+
+These practices are so fundamentally wrong they require IMMEDIATE ESCALATION.
+Do NOT give verdict NEEDS_MORE_WORK - give verdict INADMISSIBLE.
+
+1. PRODUCTION CODE DUPLICATION IN TESTS:
+
+   DETECTION STEPS:
+   a. For each test file created/modified:
+      - Read the test file completely
+      - Read the corresponding production file
+      - Compare: Does the test contain reimplemented production logic?
+
+   b. Check import paths:
+      - Does the test import from production code paths (@app/, src/, lib/)?
+      - Or does it import from local helpers/test utilities?
+
+   c. Check what the tests actually call:
+      - Do tests call imported production classes/functions?
+      - Or do tests call locally-defined duplicates?
+
+   RED FLAGS - IF YOU SEE ANY OF THESE → INADMISSIBLE:
+   - "test harness that duplicates logic"
+   - Helper classes with same method names as production
+   - Algorithms reimplemented in test files
+   - Tests that work even if production code is deleted
+   - Coverage on copied code instead of production code
+
+   VERIFICATION COMMAND:
+   Run: diff <test_file_method> <production_file_method>
+   If they're identical or nearly identical → INADMISSIBLE
+
+   EXAMPLES OF INADMISSIBLE CODE:
+   ❌ Test file contains: calculateFoo() { return x * y; }
+      Production contains: calculateFoo() { return x * y; }
+      → Tests call the test version, not production → INADMISSIBLE
+
+   ❌ TestHelper class reimplements SplitViewComponent logic
+      → Tests call TestHelper, not SplitViewComponent → INADMISSIBLE
+
+   ❌ "duplicated logic to make unit testing possible"
+      → This phrase = AUTOMATIC INADMISSIBLE
+
+   THE ONLY VALID PATTERN:
+   ✅ import { ProductionClass } from '@app/production-code';
+   ✅ const instance = new ProductionClass();
+   ✅ const result = instance.methodUnderTest(args);
+   ✅ expect(result).toBe(expected);
+
+2. MOCKING THE SUBJECT UNDER TEST:
+   - If testing ClassA.methodB(), and methodB() is mocked → INADMISSIBLE
+   - Mocking dependencies is fine; mocking the thing you're testing = FAILURE
+
+3. EMPTY/TRIVIAL TEST BODIES:
+   - expect(true).toBe(true) → INADMISSIBLE
+   - Tests that never invoke production code → INADMISSIBLE
+
+4. TESTS FOR NON-EXISTENT FUNCTIONALITY:
+
+   DETECTION STEPS:
+   a. Read test file - what functionality does it verify?
+      - E2E: What user actions? What keyboard shortcuts? What UI elements?
+      - Unit: What functions? What classes? What methods?
+      - Integration: What API endpoints? What routes?
+
+   b. Search production code for that functionality:
+      - If test uses Ctrl+Shift+P → grep keyboard event handlers
+      - If test calls validateEmail() → grep function definitions
+      - If test hits /api/users → grep route registrations
+      - If test expects .primary-view element → grep component templates
+
+   c. If functionality NOT FOUND in production code → INADMISSIBLE
+
+   RED FLAGS - IF YOU SEE ANY OF THESE → INADMISSIBLE:
+   - E2E test expects keyboard shortcut that has no event handler
+   - Unit test calls function that doesn't exist in production
+   - Integration test hits API endpoint that's not registered
+   - Test expects UI element/class that's never rendered
+   - Model wrote comprehensive tests but skipped implementing the feature
+
+   EXAMPLES OF INADMISSIBLE TESTS:
+   ❌ E2E test: page.keyboard.press('Control+Shift+P')
+      Production: No keyboard event listener for Ctrl+Shift+P
+      → Test expects non-existent shortcut → INADMISSIBLE
+
+   ❌ Unit test: expect(validateEmail('test@test.com')).toBe(true)
+      Production: No validateEmail() function exists
+      → Test calls non-existent function → INADMISSIBLE
+
+   ❌ Integration test: await fetch('/api/delete-user')
+      Production: No /api/delete-user route registered
+      → Test hits non-existent endpoint → INADMISSIBLE
+
+   WHY THIS IS INADMISSIBLE:
+   - Model wrote tests but FORGOT to implement the actual feature
+   - Tests will ALWAYS fail because functionality doesn't exist
+   - This is not a minor bug - it's a fundamental implementation failure
+   - Cannot be fixed by tweaking tests - requires implementing missing features
+
+   THE ONLY VALID PATTERN:
+   ✅ Test describes functionality
+   ✅ That exact functionality exists in production code
+   ✅ Test exercises the actual production implementation
+   ✅ Test verifies production behavior
+
+5. SKIPPING REQUIRED STEPS OR MAKING EXCUSES:
+
+   This is INADMISSIBLE. Models MUST complete tasks, NOT skip them.
+
+   RED FLAGS - IF YOU SEE ANY OF THESE IN IMPLEMENTATION OUTPUT → INADMISSIBLE:
+   - "blocked by infrastructure issues"
+   - "deployment failed, skipping"
+   - "couldn't connect to servidor"
+   - "Docker networking issue"
+   - "skipped because X wasn't working"
+   - "tests passed in a previous iteration"
+   - "assuming tests still pass"
+   - "the deployment is blocked"
+   - "infrastructure/networking issue"
+   - "can't run without deploying"
+   - "app not running" / "application not running"
+   - "server not started" / "server isn't running"
+   - "need to start the server" / "would need to start"
+   - "frontend not available" / "frontend isn't running"
+   - "can't use Playwright" / "Playwright requires a running"
+   - "validated via code review" (when task says "Playwright MCP")
+
+   THE RULE IS SIMPLE:
+   - Task says "deploy" → deployment MUST happen
+   - Task says "run tests" → tests MUST run NOW
+   - Task says "verify" → verification MUST happen NOW
+   - Task says "redeploy after changes" → redeployment MUST happen
+
+   NO EXCUSES ACCEPTED:
+   - Infrastructure issues? → FIX THEM or verdict = ESCALATE
+   - Network problems? → FIX THEM or verdict = ESCALATE
+   - Docker issues? → FIX THEM or verdict = ESCALATE
+   - "It worked before"? → Run it NOW or verdict = NEEDS_MORE_WORK
+   - App not running? → START IT or verdict = INADMISSIBLE
+   - Server not started? → START IT or verdict = INADMISSIBLE
+   - "Need to start the app first"? → THAT'S YOUR JOB or verdict = INADMISSIBLE
+
+   VALIDATION RULE:
+   - Grep implementation output for excuse patterns
+   - If phrases like "blocked by", "couldn't", "skipped", "assuming" appear
+     for any task that should have been completed → INADMISSIBLE
+   - If tests were not re-run after code changes → INADMISSIBLE
+   - "Tests passed earlier" is NOT verification - tests must pass NOW
+
+   EXAMPLES OF INADMISSIBLE EXCUSES:
+   ❌ "The k6 tests can't run without deploying, but deployment is blocked"
+      → Model skipped tests entirely → INADMISSIBLE
+
+   ❌ "Docker can't reach servidor:5555 from inside the container"
+      → Model gave up instead of fixing → INADMISSIBLE
+
+   ❌ "k6 tests were not re-run but they passed in iteration 5"
+      → Trusting past results after code changes → INADMISSIBLE
+
+   ❌ "Build succeeds locally, skipping deployment verification"
+      → Local success ≠ deployed success → INADMISSIBLE
+
+   ❌ "Can't validate via Playwright MCP because the app isn't running"
+      → Model didn't start the app → INADMISSIBLE
+
+   ❌ "Skipped Playwright MCP tasks, apps would have to be running"
+      → Model refused to start apps → INADMISSIBLE
+
+   ❌ "Frontend not available, validating via code review instead"
+      → Model substituted a weaker validation method → INADMISSIBLE
+
+   THE ONLY ACCEPTABLE OUTCOMES:
+   ✅ Task completed successfully - provide evidence
+   ✅ Task genuinely blocked by external factor - verdict = BLOCKED with explanation
+   ✅ Task cannot be completed, needs human - verdict = ESCALATE
+
+   NEVER ACCEPTABLE:
+   ❌ "Skipped because [excuse]" with verdict = COMPLETE
+
+INADMISSIBLE VERDICT RULES:
+- If ANY inadmissible practice is detected → verdict = INADMISSIBLE
+- If model SKIPPED any required step with an excuse → verdict = INADMISSIBLE
+- If tests were not re-run after deployment/code changes → verdict = INADMISSIBLE
+- This is MORE SEVERE than ESCALATE
+- This means the implementation approach is fundamentally broken
+- It cannot be fixed with more iterations - requires human redesign
+═══════════════════════════════════════════════════════════════════════════════
+
+YOUR FEEDBACK MUST:
+- List EVERY lie with task ID
+- Specify EXACTLY what file to edit and what to remove
+- Do NOT accept any excuses
+- Do NOT let the model redefine what "done" means
+- GREP implementation output for excuse patterns ("blocked", "skipped", "couldn't", "assuming")
+- GREP for Playwright MCP avoidance: "app not running", "server not started",
+  "frontend not available", "can't use Playwright", "validated via code review"
+- If a Playwright MCP task exists in tasks.md AND any excuse appears → INADMISSIBLE
+- "Validated via code review" when task says "via Playwright MCP" → INADMISSIBLE
+- If you find excuses for skipped steps → verdict = INADMISSIBLE
+- "Tests passed before" is NOT acceptable - tests must pass NOW
+
+OUTPUT FORMAT - You MUST output this exact JSON format at the end (the script parses this):
+\`\`\`json
+{
+  "RALPH_VALIDATION": {
+    "verdict": "COMPLETE|NEEDS_MORE_WORK|BLOCKED|ESCALATE|INADMISSIBLE",
+    "tasks_analysis": {
+      "total_checked": <number of tasks marked [x]>,
+      "actually_done": <number verified via git diff/file checks>,
+      "lies_detected": <number of false claims>,
+      "remaining_unchecked": <number of tasks still [ ]>,
+      "confirmed_blocked": <number of tasks genuinely blocked>
+    },
+    "scope_analysis": {
+      "files_changed": ["list of all files from git status/diff"],
+      "files_mapped_to_tasks": [{"file": "path/to/file", "task_id": "T0XX"}],
+      "scope_violations": [{"file": "path/to/file", "reason": "No task mentions this file/directory"}],
+      "verdict": "PASS|SCOPE_VIOLATION"
+    },
+    "file_sampling": {
+      "total_test_files": <N>,
+      "files_inspected": <N>,
+      "files_passed": <N>,
+      "files_suspect": <N>,
+      "suspect_files": [
+        {"path": "...", "reason": "No production imports, no render() calls, only mock signal manipulation"}
+      ],
+      "inspection_details": [
+        {"path": "...", "imports": ["..."], "production_calls": ["..."], "verdict": "PASS|SUSPECT"}
+      ]
+    },
+    "scenario_reconciliation": {
+      "original_count": <N>,
+      "new_count": <N>,
+      "deficit": <N>,
+      "deficit_percentage": "<N>%"
+    },
+    "blocked_tasks": [
+      {"task_id": "T0XX", "description": "task description", "reason": "Why genuinely blocked (e.g., requires production API key)"}
+    ],
+    "lies": [
+      {"task": "T0XX description", "claimed": "what model said it did", "reality": "what actually happened per git diff"}
+    ],
+    "inadmissible_practices": [
+      {"practice": "PRODUCTION_CODE_DUPLICATION", "description": "Test file X contains duplicated logic from production file Y", "evidence": "diff output or code snippets"},
+      {"practice": "SKIPPED_REQUIRED_STEP", "description": "Model skipped deployment citing 'infrastructure issues'", "evidence": "Quote from implementation output"},
+      {"practice": "STALE_TEST_RESULTS", "description": "Model claims tests passed in earlier iteration without re-running", "evidence": "Quote from implementation output"}
+    ],
+    "feedback": "SPECIFIC instructions for what implementation model must ACTUALLY DO next iteration. List exact files to modify and exact changes needed."
+  }
+}
+\`\`\`
+
+NOW: Run git status, git diff --stat, and verify each claim. Be ruthless.
+EOF
+}
+
+# Generate cross-validation prompt
+
+generate_cross_val_prompt() {
+    local val_output_file=$1
+    local impl_output_file=$2
+    local impl_output=""
+    if [[ -n "$impl_output_file" && -f "$impl_output_file" ]]; then
+        impl_output=$(cat "$impl_output_file")
+    fi
+
+    cat << EOF
+YOU ARE AN INDEPENDENT AUDITOR. A DIFFERENT AI JUST CLAIMED ALL TASKS ARE COMPLETE.
+YOUR JOB IS TO VERIFY THIS INDEPENDENTLY. TRUST NOTHING. CHECK EVERYTHING.
+
+You are a DIFFERENT AI system providing a second opinion.
+The implementation was done by: $AI_CLI
+You are: $CROSS_AI
+
+TASKS FILE: $TASKS_FILE
+
+MANDATORY STEPS:
+1. Read the tasks file: $TASKS_FILE
+2. For EACH task marked [x], verify it was ACTUALLY done
+3. Check the actual code/files - do NOT trust the previous AI's claims
+4. Run git status, git diff to see what actually changed
+5. Verify that all changes are complete and correct
+
+WHAT TO LOOK FOR:
+- Tasks marked [x] but code doesn't reflect the change
+- Incomplete implementations (half-done work)
+- Code that doesn't match task requirements
+- Missing files that should exist
+- Files that should be deleted but still exist
+- Tests that don't actually test production code
+
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL - EXCUSE DETECTION (INADMISSIBLE)
+═══════════════════════════════════════════════════════════════════════════════
+
+Search the implementation output for EXCUSES. Any of these patterns = INADMISSIBLE:
+
+EXCUSE PATTERNS TO GREP FOR:
+- "blocked by" / "is blocked"
+- "infrastructure issue" / "networking issue"
+- "couldn't connect" / "can't reach"
+- "skipping" / "skipped because"
+- "tests passed earlier" / "passed in iteration"
+- "assuming" / "should still"
+- "Docker can't" / "container networking"
+- "app not running" / "application not running"
+- "server not started" / "server isn't running"
+- "can't use Playwright" / "Playwright requires"
+- "validated via code review" (when task says "Playwright MCP")
+
+IF FOUND:
+1. Check if the corresponding task was actually completed
+2. If task was SKIPPED with excuse → verdict = REJECTED
+3. Reason: "INADMISSIBLE - Model made excuses for skipping required steps"
+
+RULE: If code was changed, deployment/tests MUST be re-run.
+"It worked before" is NEVER acceptable evidence after changes.
+═══════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL - PRODUCTION CODE DUPLICATION CHECK (INADMISSIBLE)
+═══════════════════════════════════════════════════════════════════════════════
+
+When verifying test-related tasks, you MUST check for INADMISSIBLE practices:
+
+1. Read test files and corresponding production files
+2. Check: Does the test file contain reimplemented production logic?
+3. Check: Do tests import and call actual production code?
+4. Check: Could the tests pass even if production code was deleted?
+5. Check: Does the functionality being tested actually EXIST in production code?
+   - If test expects Ctrl+Shift+P shortcut → Does keyboard handler exist?
+   - If test calls validateEmail() → Does function exist in production?
+   - If test hits /api/endpoint → Is route registered?
+   - If test expects UI element → Is element rendered in component?
+
+If tests contain their own copy of production algorithms → REJECT with:
+"INADMISSIBLE: Production code duplication detected. Tests must import and
+call actual production code, not duplicate it."
+
+If tests verify functionality that doesn't exist in production → REJECT with:
+"INADMISSIBLE: Tests written for non-existent functionality. Model wrote tests
+but forgot to implement the feature (e.g., keyboard shortcut handlers, functions,
+API endpoints, UI elements)."
+
+These are AUTOMATIC REJECTIONS regardless of other findings.
+═══════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════
+MANDATORY: YOU MUST OPEN AND READ TEST FILES (IF THEY EXIST)
+═══════════════════════════════════════════════════════════════════════════════
+
+FIRST: Check if test files exist in the diff:
+Run: git diff --name-only --diff-filter=ACM | grep -E "\.(spec|test)\.[jt]sx?$"
+
+If ZERO test files AND no test-related tasks in tasks.md:
+- This is valid - tests are optional
+- Include in JSON: "files_actually_read": [], "reason": "no_test_files_or_tasks"
+- Proceed with other verification steps
+
+If test files exist (even one):
+Do NOT just run git diff --stat and check file existence.
+You MUST open at least 5 test files (or 30% if fewer than 17 total) and:
+
+1. QUOTE the import lines from each file
+2. QUOTE the lines where production code is called
+3. Verify the file actually tests production behavior, not its own mocks
+
+If you cannot quote actual code from at least 5 test files, your verification
+is INCOMPLETE and you must verdict REJECTED.
+
+Include in your JSON:
+"files_actually_read": ["path1", "path2", ...],
+"code_quotes": [{"file": "...", "imports": "...", "production_calls": "..."}]
+═══════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════
+VERIFICATION STANDARDS BY TASK TYPE
+═══════════════════════════════════════════════════════════════════════════════
+
+IMPORTANT: Verify CURRENT STATE, not historical log files.
+
+| Task Type | How to Verify |
+|-----------|---------------|
+| CREATE/MODIFY file | File exists with correct content |
+| DELETE/REMOVE | File doesn't exist or code removed per git diff |
+| Deploy to server | Artifact exists on target server NOW (curl API) |
+| Run tests | Tests PASS when you run them NOW |
+| Build | Build SUCCEEDS when you run it NOW |
+| Run/Execute X | Outcome is correct in current state |
+| Verify X | X is true in current state |
+| Playwright MCP validation | Evidence of Playwright MCP usage in implementation output (browser_navigate, browser_click, browser_snapshot tool calls) AND screenshots at path if specified. Do NOT check current port status — servers may be stopped after validation. |
+
+Do NOT require log files (deploy.log, test-results.txt, etc.) unless the task
+explicitly says \"capture output\" or \"log results\".
+
+EXAMPLE - CORRECT VERIFICATION:
+- Task: \"Deploy BCL packages to servidor\"
+- Verification: curl servidor BaGet API → packages exist? → CONFIRMED
+- WRONG: Looking for deploy-output.log file
+
+EXAMPLE - CORRECT VERIFICATION:
+- Task: \"Run quickstart.md validation scenarios\"
+- Verification: Generated validators have expected error messages? → CONFIRMED
+- WRONG: Looking for quickstart-execution.log file
+
+PLAYWRIGHT MCP VALIDATION TASKS:
+═══════════════════════════════════════════════════════════════════════════════
+
+For tasks containing "Playwright MCP" or "via Playwright MCP":
+
+THE RULE: If a task says "via Playwright MCP", Playwright MCP MUST have been used.
+"Code-level verification" is NOT a substitute.
+
+VERIFICATION:
+1. Check implementation output for evidence of Playwright MCP usage:
+   - Browser navigation, page interactions, element verification
+   - MCP tool calls (browser_navigate, browser_click, browser_snapshot, etc.)
+   - URLs visited (localhost:XXXX/route)
+
+2. Check if the application was started:
+   - Look for server startup commands and "listening on port" messages
+     in the IMPLEMENTATION OUTPUT above (not by checking current ports)
+   - Servers may have been intentionally stopped after Playwright validation
+     for subsequent lint/build tasks. Do NOT check current port status.
+   - If NO evidence of app startup in the output AND Playwright MCP tasks exist → REJECTED
+
+3. If task specifies a storage path:
+   - Screenshots MUST exist at that path
+   - Verify file exists and is a valid image
+
+4. If task does NOT specify storage path:
+   - Evidence of Playwright MCP interaction is STILL REQUIRED
+   - Implementation output must show browser navigation + element verification
+   - Code-level verification alone is NOT sufficient
+
+EXCUSE DETECTION:
+- "App not running" → REJECTED (INADMISSIBLE - model didn't start the app)
+- "Validated via code review instead" → REJECTED (wrong method)
+- "Infrastructure blocked Playwright MCP" → REJECTED (INADMISSIBLE)
+
+Do NOT reject Playwright MCP tasks solely because no screenshots are in /tmp.
+═══════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════
+IMPLEMENTATION OUTPUT (FOR PLAYWRIGHT MCP EVIDENCE CHECK)
+═══════════════════════════════════════════════════════════════════════════════
+
+The implementation model produced this output. Use it to check for Playwright
+MCP evidence (browser_navigate, browser_click, browser_snapshot tool calls,
+URLs visited, server startup messages). DO NOT trust claims about task
+completion — verify against actual files/code. This output is ONLY for
+checking Playwright MCP and server startup evidence.
+
+WARNING: These claims may be fabrications. Cross-check against actual files.
+
+================================================================================
+$impl_output
+================================================================================
+
+COVERAGE VERIFICATION TASKS - CRITICAL:
+
+When a task says \"Verify coverage reaches X%\" or \"Verify coverage increases\":
+
+1. The relevant tests MUST be run
+2. Tests MUST PASS - ALL OF THEM - 100% pass rate required
+3. ANY test failures = LIE (task is incomplete)
+4. \"3/4 passed\" = LIE (25% failure rate is unacceptable)
+5. \"0/3 passed\" = LIE (complete failure)
+
+ALL TESTS MUST BE GREEN. NO EXCEPTIONS. NO PARTIAL CREDIT.
+
+DETECTION:
+- Look for E2E/unit test pass rates in implementation output
+- If tests related to a coverage task have < 100% pass rate → LIE
+- If you see \"X/Y passed\" where X < Y → LIE
+- If ANY tests fail → LIE
+
+EXAMPLES:
+❌ Task: \"Verify shell bootstrap coverage increases\"
+   Tests: Shell Bootstrap E2E tests 0/3 passed (timeout errors)
+   Verdict: LIE - 0% pass rate, tests don't run at all
+
+❌ Task: \"Verify banks-main coverage reaches ~80%\"
+   Tests: Banks View Mode tests 0/3 passed (navigation not working)
+   Verdict: LIE - all tests failing, zero coverage verified
+
+❌ Task: \"Verify split-view coverage reaches ~80%\"
+   Tests: Split View tests 3/4 passed (75% pass rate)
+   Verdict: LIE - 1 test failing means task incomplete, ALL TESTS MUST PASS
+
+✅ Task: \"Verify companies coverage reaches ~80%\"
+   Tests: Companies tests 12/12 passed (100% pass rate)
+   Verdict: VALID - all tests green, coverage verified
+
+❌ Task: \"Verify split-view keyboard shortcuts coverage\"
+   Tests: Tests expect Ctrl+Shift+P and Ctrl+Shift+S shortcuts
+   Production: No keyboard event handlers for these shortcuts exist
+   Verdict: INADMISSIBLE - tests written for non-existent functionality
+   Analysis: Model wrote tests but FORGOT to implement the shortcuts in
+   the component. Tests can never pass because feature doesn't exist.
+
+THE PREVIOUS VALIDATION VERDICT:
+The validator ($AI_CLI) claimed all tasks are COMPLETE.
+You must independently verify this claim.
+
+OUTPUT FORMAT:
+\`\`\`json
+{
+  "RALPH_CROSS_VALIDATION": {
+    "verdict": "CONFIRMED|REJECTED",
+    "tasks_verified": <number of tasks you verified>,
+    "discrepancies_found": <number of issues discovered>,
+    "files_actually_read": ["path1", "path2", ...],
+    "code_quotes": [
+      {"file": "...", "imports": "...", "production_calls": "..."}
+    ],
+    "discrepancies": [
+      {"task_id": "T001", "claimed": "...", "actual": "..."}
+    ],
+    "feedback": "If REJECTED, what needs fixing"
+  }
+}
+\`\`\`
+
+VERDICT MEANINGS:
+- CONFIRMED: You independently agree all tasks are complete and correct
+- REJECTED: You found problems - provide specific feedback for implementation AI
+
+BEGIN YOUR INDEPENDENT VERIFICATION NOW.
+EOF
+}
+
+# Generate tasks validation prompt
+
+generate_tasks_validation_prompt() {
+    local plan_content
+    local tasks_content
+    local template_content
+    local constitution_content
+    local has_template=0
+    local has_constitution=0
+
+    plan_content=$(cat "$ORIGINAL_PLAN_FILE")
+    tasks_content=$(cat "$TASKS_FILE")
+
+    # Try to get template content
+    local template_file
+    template_file=$(get_tasks_template "$TASKS_FILE")
+    if [[ -f "$template_file" ]]; then
+        template_content=$(cat "$template_file")
+        has_template=1
+    fi
+
+    # Try to get constitution content
+    local constitution_file
+    constitution_file=$(get_constitution "$TASKS_FILE")
+    if [[ -f "$constitution_file" ]]; then
+        constitution_content=$(cat "$constitution_file")
+        has_constitution=1
+    fi
+
+    cat << EOF
+YOU ARE VALIDATING THAT SPEC-KIT GENERATED TASKS PROPERLY IMPLEMENT THE ORIGINAL PLAN AND FOLLOW PROJECT RULES.
+
+CONTEXT:
+The user created an original plan file using Claude Code's plan mode.
+Then they ran spec-kit (GitHub's /specify.implement command) which generated tasks.md from that plan.
+Now we need to verify that tasks.md:
+1. Properly covers all requirements from the original plan (SEMANTIC VALIDATION)
+2. Follows all rules and structure from the tasks template (TEMPLATE COMPLIANCE)
+3. Respects all project principles and requirements from the constitution (CONSTITUTION COMPLIANCE)
+
+ORIGINAL PLAN FILE: $ORIGINAL_PLAN_FILE
+TASKS FILE: $TASKS_FILE
+EOF
+
+    if [[ $has_template -eq 1 ]]; then
+        cat << EOF
+TASKS TEMPLATE FILE: $template_file
+
+TASKS TEMPLATE CONTENT:
+\`\`\`
+$template_content
+\`\`\`
+EOF
+    fi
+
+    if [[ $has_constitution -eq 1 ]]; then
+        cat << EOF
+CONSTITUTION FILE: $constitution_file
+
+CONSTITUTION CONTENT:
+\`\`\`
+$constitution_content
+\`\`\`
+EOF
+    fi
+
+    cat << EOF
+
+ORIGINAL PLAN CONTENT:
+\`\`\`
+$plan_content
+\`\`\`
+
+GENERATED TASKS CONTENT:
+\`\`\`
+$tasks_content
+\`\`\`
+
+YOUR JOB - THREE-PART VALIDATION:
+
+PART 1: SEMANTIC VALIDATION (Plan Coverage)
+1. Read the original plan carefully and identify ALL requirements, features, and directives
+2. Read the generated tasks.md and check if it covers those requirements
+3. Look for:
+   - Missing requirements that are in the plan but not in tasks.md
+   - Contradictions between the plan and tasks.md
+   - Ignored directives or important details from the plan
+   - Incomplete task breakdown that doesn't fully implement the plan
+EOF
+
+    if [[ $has_template -eq 1 ]]; then
+        cat << EOF
+
+PART 2: TEMPLATE COMPLIANCE (Structure & Rules)
+1. Read the tasks template carefully and identify ALL rules, forbidden patterns, and required sections
+2. Check if tasks.md follows these rules:
+   - FORBIDDEN sections: tasks.md MUST NOT contain any forbidden patterns (e.g., git push, PR creation)
+   - Required sections: tasks.md MUST include all required sections (e.g., Phase FINAL)
+   - Multi-repo rules: If tasks mention dependent repositories (BCL, MDA), check for required deployment tasks
+   - Structure: tasks.md should follow the template's organizational patterns
+3. Be strict about FORBIDDEN items - even one violation should fail validation
+EOF
+    fi
+
+    if [[ $has_constitution -eq 1 ]]; then
+        cat << EOF
+
+PART 3: CONSTITUTION COMPLIANCE (Project Principles & Architecture)
+1. Read the constitution carefully and identify ALL mandatory principles, architecture requirements, and quality gates
+2. Check if tasks.md and the planned approach respect these requirements:
+   - Architecture mandates: gRPC-only APIs, Event Sourcing, CQRS, etc.
+   - Quality gates: StyleCop, pre-commit hooks, test requirements, code review workflows
+   - Workflow requirements: BCL/MDA cross-repository workflows, deployment procedures
+   - Technology constraints: External services architecture, specific library requirements
+   - Security standards: Authentication, authorization, vulnerability scanning
+3. Look for plan/task contradictions with constitutional principles:
+   - If plan says "REST API" but constitution requires gRPC → INVALID
+   - If tasks skip pre-commit validation but constitution requires it → INVALID
+   - If BCL workflow incomplete but constitution mandates specific steps → INVALID
+4. Be strict about MANDATORY principles - these are non-negotiable architecture decisions
+EOF
+    fi
+
+    cat << EOF
+
+PART 4: SCOPE NARROWING DETECTION (Critical)
+
+Watch for IMPLICIT scope narrowing where tasks restrict inputs the plan accepts:
+
+1. PARAMETER TYPE NARROWING:
+   - Plan: "Parameter accepts Type/interface/generic" → Should support multiple types
+   - Tasks: Restricts to a specific type (e.g., "string only")
+   - This is a CONTRADICTION - the plan's parameter type is broader
+
+2. CONDITIONAL BEHAVIOR vs CONSTRAINTS:
+   - "when X" or "if X" = CONDITIONAL behavior (special handling for X, others still supported)
+   - NOT "only X" or "X only" = CONSTRAINT (restrict to X only)
+
+   Example:
+   - Plan: "Emit Validate() when UnderlyingType == string"
+   - Meaning: String types get validation, other types are still supported (just without validation)
+   - WRONG interpretation: "Only support string UnderlyingType"
+
+3. OPTIONAL → REQUIRED NARROWING:
+   - Plan: "optional parameter", "can specify", "may include"
+   - Tasks: Makes it mandatory or removes the optionality
+   - If plan says something is optional, tasks cannot require it
+
+4. MULTIPLE → SINGLE NARROWING:
+   - Plan: "supports multiple X", "list of", "one or more"
+   - Tasks: Restricts to single item or specific count
+   - If plan supports collections, tasks cannot restrict to single items
+
+5. BROAD → SPECIFIC NARROWING:
+   - Plan: Uses generic terms, interfaces, or abstract concepts
+   - Tasks: Hardcodes specific implementations or concrete values
+   - If plan is generic, tasks cannot hardcode specifics
+
+6. FLEXIBLE → FIXED NARROWING:
+   - Plan: "configurable", "can be changed", "allows customization"
+   - Tasks: Hardcodes behavior without configuration options
+   - If plan allows configuration, tasks cannot remove configurability
+
+7. DETECTION RULES:
+   - If plan uses generic type (Type, T, interface{}) → tasks must not restrict to specific type
+   - If plan uses "when/if/for" conditional → tasks must not interpret as "only"
+   - If plan says "optional" → tasks must not make it required
+   - If plan says "multiple/list/array" → tasks must not restrict to single
+   - If plan is abstract/generic → tasks must not hardcode specifics
+   - If plan is configurable → tasks must not remove configuration
+
+8. RED FLAGS:
+   - Tasks add "only" where plan doesn't have it
+   - Tasks restrict parameter types not restricted in plan
+   - Tasks interpret conditional behavior as hard constraints
+   - Tasks make optional features required
+   - Tasks limit multiplicity not limited in plan
+   - Tasks hardcode values plan left configurable
+   - Tasks add limitations not present in original requirements
+
+If ANY scope narrowing is detected → verdict = INVALID
+This is as serious as missing requirements - it changes what the implementation will accept.
+
+IMPORTANT RULES:
+- Do NOT reference implementation details or code (that hasn't been written yet)
+- Only compare the plan, template, and constitution against the tasks document
+- ANY contradiction between the plan and tasks.md MUST result in an INVALID verdict - there is ZERO tolerance for deviations from the plan
+- If contradictions_found > 0, the verdict MUST be INVALID
+- Tasks must implement EXACTLY what the plan specifies - correct files, correct parameters, correct values
+- Focus on whether the tasks would fully implement the plan and follow all template and constitution rules
+EOF
+
+    if [[ $has_template -eq 1 ]]; then
+        cat << EOF
+- FORBIDDEN items are absolute violations - no exceptions
+- Template rules exist to prevent common mistakes - enforce them strictly
+EOF
+    fi
+
+    if [[ $has_constitution -eq 1 ]]; then
+        cat << EOF
+- MANDATORY constitutional principles are non-negotiable - architecture violations must fail validation
+- Constitution defines the "how" - if tasks violate architectural requirements, they cannot proceed
+EOF
+    fi
+
+    cat << EOF
+
+OUTPUT FORMAT - You MUST output this exact JSON format at the end:
+\`\`\`json
+{
+  "RALPH_TASKS_VALIDATION": {
+    "verdict": "VALID|INVALID",
+    "analysis": {
+      "total_plan_requirements": <number of distinct requirements in the plan>,
+      "requirements_covered": <number properly covered in tasks.md>,
+      "missing_requirements": <number of requirements not covered>,
+      "contradictions_found": <number of contradictions>,
+      "scope_narrowing_detected": <number of scope narrowing issues>,
+EOF
+
+    if [[ $has_template -eq 1 ]]; then
+        cat << EOF
+      "template_violations": <number of template rule violations>,
+      "forbidden_patterns_found": <number of forbidden items in tasks.md>,
+EOF
+    fi
+
+    if [[ $has_constitution -eq 1 ]]; then
+        cat << EOF
+      "constitution_violations": <number of constitutional principle violations>
+EOF
+    fi
+
+    cat << EOF
+    },
+    "missing_items": [
+      "Specific requirement from plan that's missing in tasks.md",
+      "Another missing requirement"
+    ],
+    "contradictions": [
+      {"plan_says": "...", "tasks_say": "..."}
+    ],
+    "scope_narrowing_issues": [
+      {
+        "category": "PARAMETER_TYPE_NARROWING|CONDITIONAL_TO_CONSTRAINT|OPTIONAL_TO_REQUIRED|MULTIPLE_TO_SINGLE|BROAD_TO_SPECIFIC|FLEXIBLE_TO_FIXED",
+        "plan_allows": "What the plan specifies",
+        "tasks_restrict_to": "How tasks narrowed it",
+        "why_this_is_wrong": "Explanation of the scope narrowing"
+      }
+    ],
+EOF
+
+    if [[ $has_template -eq 1 ]]; then
+        cat << EOF
+    "template_violations": [
+      "Specific template rule that was violated",
+      "Another template violation"
+    ],
+EOF
+    fi
+
+    if [[ $has_constitution -eq 1 ]]; then
+        cat << EOF
+    "constitution_violations": [
+      "Specific constitutional principle that was violated",
+      "Another constitution violation"
+    ],
+EOF
+    fi
+
+    cat << EOF
+    "feedback": "If INVALID: specific explanation of what's missing, wrong, or violates template/constitution rules. If VALID: brief confirmation."
+  }
+}
+\`\`\`
+
+VERDICT MEANINGS:
+- VALID: Tasks.md properly covers the plan AND has zero contradictions with the plan AND follows all template rules AND respects all constitutional principles - proceed with implementation
+- INVALID: Tasks.md is missing requirements, has any contradictions with the plan, contradicts the plan, violates template rules, OR violates constitutional principles - abort immediately
+
+BEGIN YOUR VALIDATION NOW.
+EOF
+}
+
+# Generate final plan validation prompt
+
+generate_final_plan_validation_prompt() {
+    local plan_content
+
+    plan_content=$(cat "$ORIGINAL_PLAN_FILE")
+
+    cat << EOF
+YOU ARE VALIDATING THAT THE ORIGINAL PLAN WAS ACTUALLY IMPLEMENTED IN THE CODEBASE.
+
+CONTEXT:
+An original plan was created before spec-kit generated tasks.md.
+The implementation AI ($AI_CLI) has now completed all the tasks in tasks.md.
+The cross-validation AI ($CROSS_AI) has confirmed that tasks.md is complete.
+BUT we need to verify that the ORIGINAL PLAN was actually implemented.
+
+ORIGINAL PLAN FILE: $ORIGINAL_PLAN_FILE
+
+ORIGINAL PLAN CONTENT:
+\`\`\`
+$plan_content
+\`\`\`
+
+YOUR JOB:
+1. Read the original plan carefully
+2. Examine the codebase directly to verify each requirement was implemented
+3. Do NOT look at tasks.md - ignore it completely
+4. Verify the plan was implemented, not just the tasks
+
+CRITICAL RULE:
+- Do NOT reference or read tasks.md
+- Only compare the plan against the actual codebase
+- Use git diff, file inspection, and code analysis
+- Check if what the plan asked for is actually present in the code
+
+WHAT TO LOOK FOR:
+- Are all features from the plan actually implemented?
+- Are all directives from the plan actually followed?
+- Is the implementation consistent with the plan's intent?
+- Are there missing pieces that the plan required?
+
+OUTPUT FORMAT - You MUST output this exact JSON format at the end:
+\`\`\`json
+{
+  "RALPH_FINAL_PLAN_VALIDATION": {
+    "verdict": "CONFIRMED|NOT_IMPLEMENTED",
+    "analysis": {
+      "plan_requirements_checked": <number of requirements verified>,
+      "requirements_implemented": <number actually found in code>,
+      "requirements_missing": <number not found in code>
+    },
+    "missing_from_code": [
+      "Specific requirement from plan that's not in the codebase",
+      "Another missing implementation"
+    ],
+    "feedback": "If NOT_IMPLEMENTED: specific explanation of what's missing. If CONFIRMED: brief confirmation."
+  }
+}
+\`\`\`
+
+VERDICT MEANINGS:
+- CONFIRMED: The original plan was fully implemented in the codebase
+- NOT_IMPLEMENTED: Some requirements from the plan are missing - provide feedback and continue loop
+
+BEGIN YOUR VERIFICATION NOW. Remember: DO NOT look at tasks.md, only the plan and the code.
+EOF
+}
+
+# Extract JSON from output file (handles markdown code blocks)
+
+# ============================================================================
+# HELPER FUNCTIONS FOR PHASE EXECUTION
+# ============================================================================
+
+get_tasks_template() {
+    local tasks_file=$1
+    local git_root
+
+    # Get git root relative to tasks file directory
+    git_root=$(cd "$(dirname "$tasks_file")" && git rev-parse --show-toplevel 2>/dev/null) || return 1
+
+    echo "$git_root/.specify/templates/tasks-template.md"
+}
+
+# Get constitution file path
+
+get_constitution() {
+    local tasks_file=$1
+    local git_root
+
+    # Get git root relative to tasks file directory
+    git_root=$(cd "$(dirname "$tasks_file")" && git rev-parse --show-toplevel 2>/dev/null) || return 1
+
+    echo "$git_root/.specify/memory/constitution.md"
+}
+
+# Check template compliance with fast bash checks
+
+check_template_compliance() {
+    local tasks_file=$1
+    local template_file=$2
+    local violations=()
+
+    # Check if template exists
+    if [[ ! -f "$template_file" ]]; then
+        return 0  # No template = no violations
+    fi
+
+    local tasks_content
+    tasks_content=$(cat "$tasks_file")
+
+    # Extract FORBIDDEN patterns from template
+    if grep -q "FORBIDDEN" "$template_file"; then
+        local forbidden_section
+        forbidden_section=$(sed -n '/FORBIDDEN/,/^##/p' "$template_file" | sed '$d')
+
+        # Check for git push violations
+        if echo "$forbidden_section" | grep -qi "git push"; then
+            if echo "$tasks_content" | grep -iE "(git push|Push.*remote)" > /dev/null; then
+                violations+=("FORBIDDEN: tasks.md contains 'git push' tasks")
+            fi
+        fi
+
+        # Check for PR creation violations
+        if echo "$forbidden_section" | grep -qi "PR creation"; then
+            if echo "$tasks_content" | grep -iE "(Create PR|gh pr create|pull request.*creat)" > /dev/null; then
+                violations+=("FORBIDDEN: tasks.md contains PR creation tasks")
+            fi
+        fi
+    fi
+
+    # Check if Phase FINAL exists (if template requires it)
+    if grep -q "^## Phase FINAL:" "$template_file"; then
+        if ! grep -q "^## Phase FINAL:" "$tasks_file"; then
+            violations+=("MISSING: tasks.md must include 'Phase FINAL' section")
+        fi
+    fi
+
+    # Check multi-repo deployment tasks
+    if echo "$tasks_content" | grep -qE "(~/source/bcl/|~/source/mda/)"; then
+        # Check for BCL deployment
+        if echo "$tasks_content" | grep -q "~/source/bcl/"; then
+            if ! echo "$tasks_content" | grep -qi "deploy.*bcl.*servidor"; then
+                violations+=("MISSING: BCL repository changes require servidor deployment task")
+            fi
+        fi
+
+        # Check for MDA deployment
+        if echo "$tasks_content" | grep -q "~/source/mda/"; then
+            if ! echo "$tasks_content" | grep -qi "deploy.*mda"; then
+                violations+=("MISSING: MDA repository changes require deployment task")
+            fi
+        fi
+    fi
+
+    # Return violations (empty = pass)
+    if [[ ${#violations[@]} -gt 0 ]]; then
+        printf '%s\n' "${violations[@]}"
+        return 1
+    fi
+
+    return 0
+}
+
+# Run tasks validation (pre-implementation, iteration 1 only)
+
+# ============================================================================
+# PHASE EXECUTION FUNCTIONS
+# ============================================================================
+
+run_implementation() {
+    local iteration=$1
+    local feedback=$2
+    local output_file="$STATE_DIR/impl-output-${iteration}.txt"
+
+    # All logs go to stderr so they don't pollute the returned file path
+    log_phase "IMPLEMENTATION PHASE - Iteration $iteration" >&2
+    log_info "AI CLI: $AI_CLI" >&2
+    log_info "Model: $IMPL_MODEL" >&2
+
+    local prompt
+    prompt=$(generate_impl_prompt "$iteration" "$feedback")
+
+    # Run AI with timeout and inactivity detection
+    # Use saved retry state if resuming, otherwise start fresh
+    local start_attempt=1
+    local start_delay=5
+    if [[ $RESUMING_RETRY -eq 1 ]]; then
+        start_attempt=$CURRENT_RETRY_ATTEMPT
+        start_delay=$CURRENT_RETRY_DELAY
+        RESUMING_RETRY=0  # Only resume retry state once
+        log_info "Resuming from retry attempt $start_attempt with ${start_delay}s delay" >&2
+    fi
+
+    local impl_success=0
+    set +e  # Temporarily disable exit on error
+    if [[ "$AI_CLI" == "codex" ]]; then
+        local -a codex_args=(
+            --dangerously-bypass-approvals-and-sandbox
+        )
+
+        if [[ -n "$IMPL_MODEL" && "$IMPL_MODEL" != "default" ]]; then
+            codex_args+=(-m "$IMPL_MODEL")
+        fi
+
+        if [[ -n "$VERBOSE" ]]; then
+            log_warn "Verbose flag is ignored for codex CLI" >&2
+        fi
+
+        codex_args+=("$prompt")
+
+        log_info "Running codex..." >&2
+        if run_codex_with_timeout "$output_file" 1800 "$start_attempt" "$start_delay" "${codex_args[@]}"; then
+            log_success "Implementation phase completed" >&2
+            impl_success=1
+            CURRENT_RETRY_ATTEMPT=1
+            CURRENT_RETRY_DELAY=5
+        else
+            log_error "Implementation phase failed after $MAX_CLAUDE_RETRY attempts" >&2
+            log_warn "Check if codex CLI is working: codex exec 'hello'" >&2
+        fi
+    else
+        local -a claude_args=(
+            --dangerously-skip-permissions
+            --model "$IMPL_MODEL"
+            --print
+            --max-turns "$MAX_TURNS"
+        )
+
+        if [[ -n "$VERBOSE" ]]; then
+            claude_args+=("$VERBOSE")
+        fi
+
+        claude_args+=("$prompt")
+
+        log_info "Running claude..." >&2
+        if run_claude_with_timeout "$output_file" 1800 "$start_attempt" "$start_delay" "${claude_args[@]}"; then
+            log_success "Implementation phase completed" >&2
+            impl_success=1
+            CURRENT_RETRY_ATTEMPT=1
+            CURRENT_RETRY_DELAY=5
+        else
+            log_error "Implementation phase failed after $MAX_CLAUDE_RETRY attempts" >&2
+            log_warn "Check if claude CLI is working: claude --print 'hello'" >&2
+        fi
+    fi
+    set -e  # Re-enable exit on error
+
+    # Display output
+    cat "$output_file" >&2
+
+    save_iteration_state "$iteration" "implementation" "$output_file"
+
+    if [[ $impl_success -eq 1 ]]; then
+        log_summary "Iteration $iteration: Implementation phase completed"
+    else
+        log_summary "Iteration $iteration: Implementation phase FAILED"
+    fi
+
+    # Only this goes to stdout - the file path
+    echo "$output_file"
+
+    # Return exit code: 0 for success, 1 for failure
+    [[ $impl_success -eq 1 ]]
+}
+
+# Run validation phase
+
+run_validation() {
+    local iteration=$1
+    local impl_output_file=$2
+    local output_file="$STATE_DIR/val-output-${iteration}.txt"
+
+    # All logs go to stderr so they don't pollute the returned file path
+    log_phase "VALIDATION PHASE - Iteration $iteration" >&2
+    log_info "AI CLI: $AI_CLI" >&2
+    log_info "Model: $VAL_MODEL" >&2
+
+    local impl_output
+    impl_output=$(cat "$impl_output_file" 2>/dev/null || echo "No implementation output available")
+
+    local prompt
+    prompt=$(generate_val_prompt "$impl_output")
+
+    # Run AI with timeout and inactivity detection
+    # Use saved retry state if resuming, otherwise start fresh
+    local start_attempt=1
+    local start_delay=5
+    if [[ $RESUMING_RETRY -eq 1 ]]; then
+        start_attempt=$CURRENT_RETRY_ATTEMPT
+        start_delay=$CURRENT_RETRY_DELAY
+        RESUMING_RETRY=0  # Only resume retry state once
+        log_info "Resuming from retry attempt $start_attempt with ${start_delay}s delay" >&2
+    fi
+
+    set +e  # Temporarily disable exit on error
+    if [[ "$AI_CLI" == "codex" ]]; then
+        local -a codex_args=(
+            --dangerously-bypass-approvals-and-sandbox
+        )
+
+        if [[ -n "$VAL_MODEL" && "$VAL_MODEL" != "default" ]]; then
+            codex_args+=(-m "$VAL_MODEL")
+        fi
+
+        if [[ -n "$VERBOSE" ]]; then
+            log_warn "Verbose flag is ignored for codex CLI" >&2
+        fi
+
+        codex_args+=("$prompt")
+
+        log_info "Running validation..." >&2
+        if run_codex_with_timeout "$output_file" 1800 "$start_attempt" "$start_delay" "${codex_args[@]}"; then
+            log_success "Validation phase completed" >&2
+            CURRENT_RETRY_ATTEMPT=1
+            CURRENT_RETRY_DELAY=5
+        else
+            log_error "Validation phase failed - see output file for details" >&2
+            log_warn "Check if codex CLI is working: codex exec 'hello'" >&2
+        fi
+    else
+        local -a claude_args=(
+            --dangerously-skip-permissions
+            --model "$VAL_MODEL"
+            --print
+            --max-turns "$MAX_TURNS"
+        )
+
+        if [[ -n "$VERBOSE" ]]; then
+            claude_args+=("$VERBOSE")
+        fi
+
+        claude_args+=("$prompt")
+
+        log_info "Running validation..." >&2
+        if run_claude_with_timeout "$output_file" 1800 "$start_attempt" "$start_delay" "${claude_args[@]}"; then
+            log_success "Validation phase completed" >&2
+            CURRENT_RETRY_ATTEMPT=1
+            CURRENT_RETRY_DELAY=5
+        else
+            log_error "Validation phase failed - see output file for details" >&2
+            log_warn "Check if claude CLI is working: claude --print 'hello'" >&2
+        fi
+    fi
+    set -e  # Re-enable exit on error
+
+    # Display output
+    cat "$output_file" >&2
+
+    save_iteration_state "$iteration" "validation" "$output_file"
+    log_summary "Iteration $iteration: Validation phase completed"
+
+    echo "$output_file"
+}
+
+# Run cross-validation phase
+
+run_cross_validation() {
+    local iteration=$1
+    local val_output_file=$2
+    local impl_output_file=$3
+    local output_file="$STATE_DIR/cross-val-output-${iteration}.txt"
+
+    # All logs go to stderr
+    log_phase "CROSS-VALIDATION PHASE - Iteration $iteration" >&2
+    log_info "Using opposite AI: $CROSS_AI" >&2
+    log_info "Model: $CROSS_MODEL" >&2
+
+    local prompt
+    prompt=$(generate_cross_val_prompt "$val_output_file" "$impl_output_file")
+
+    # Use saved retry state if resuming, otherwise start fresh
+    local start_attempt=1
+    local start_delay=5
+    if [[ $RESUMING_RETRY -eq 1 ]]; then
+        start_attempt=$CURRENT_RETRY_ATTEMPT
+        start_delay=$CURRENT_RETRY_DELAY
+        RESUMING_RETRY=0
+        log_info "Resuming from retry attempt $start_attempt with ${start_delay}s delay" >&2
+    fi
+
+    set +e  # Temporarily disable exit on error
+    if [[ "$CROSS_AI" == "codex" ]]; then
+        local -a codex_args=(
+            --dangerously-bypass-approvals-and-sandbox
+        )
+
+        if [[ -n "$CROSS_MODEL" && "$CROSS_MODEL" != "default" ]]; then
+            codex_args+=(-m "$CROSS_MODEL")
+        fi
+
+        codex_args+=("$prompt")
+
+        log_info "Running cross-validation with codex..." >&2
+        if run_codex_with_timeout "$output_file" 1800 "$start_attempt" "$start_delay" "${codex_args[@]}"; then
+            log_success "Cross-validation phase completed" >&2
+            CURRENT_RETRY_ATTEMPT=1
+            CURRENT_RETRY_DELAY=5
+        else
+            log_error "Cross-validation phase failed - see output file for details" >&2
+        fi
+    else
+        local -a claude_args=(
+            --dangerously-skip-permissions
+            --model "$CROSS_MODEL"
+            --print
+            --max-turns "$MAX_TURNS"
+        )
+
+        if [[ -n "$VERBOSE" ]]; then
+            claude_args+=("$VERBOSE")
+        fi
+
+        claude_args+=("$prompt")
+
+        log_info "Running cross-validation with claude..." >&2
+        if run_claude_with_timeout "$output_file" 1800 "$start_attempt" "$start_delay" "${claude_args[@]}"; then
+            log_success "Cross-validation phase completed" >&2
+            CURRENT_RETRY_ATTEMPT=1
+            CURRENT_RETRY_DELAY=5
+        else
+            log_error "Cross-validation phase failed - see output file for details" >&2
+        fi
+    fi
+    set -e  # Re-enable exit on error
+
+    # Display output
+    cat "$output_file" >&2
+
+    save_iteration_state "$iteration" "cross_validation" "$output_file"
+    log_summary "Iteration $iteration: Cross-validation phase completed"
+
+    echo "$output_file"
+}
+
+# Get tasks template file path
+
+run_tasks_validation() {
+    local output_file="$STATE_DIR/tasks-validation-output.txt"
+
+    # All logs go to stderr
+    log_phase "TASKS VALIDATION PHASE" >&2
+    log_info "Validating that tasks.md properly implements the original plan" >&2
+
+    # First, check template compliance with fast bash checks
+    local template_file
+    template_file=$(get_tasks_template "$TASKS_FILE")
+
+    if [[ -f "$template_file" ]]; then
+        log_info "Checking template compliance: $template_file" >&2
+        local violations
+        set +e  # Allow check to fail
+        violations=$(check_template_compliance "$TASKS_FILE" "$template_file")
+        local check_result=$?
+        set -e
+
+        if [[ $check_result -ne 0 ]]; then
+            # Template violations found - fail fast
+            log_error "Template compliance check FAILED" >&2
+            echo "TEMPLATE_VIOLATIONS:$violations" > "$output_file"
+            cat "$output_file" >&2
+            echo "$output_file"
+            return 1
+        fi
+
+        log_success "Template compliance check passed" >&2
+    else
+        log_info "No tasks template found - skipping template compliance check" >&2
+    fi
+
+    # Continue with existing AI-based semantic validation
+    log_info "Using tasks validation AI: $TASKS_VAL_AI" >&2
+    log_info "Model: $TASKS_VAL_MODEL" >&2
+
+    local prompt
+    prompt=$(generate_tasks_validation_prompt)
+
+    set +e  # Temporarily disable exit on error
+    if [[ "$TASKS_VAL_AI" == "codex" ]]; then
+        local -a codex_args=(
+            --dangerously-bypass-approvals-and-sandbox
+        )
+
+        if [[ -n "$TASKS_VAL_MODEL" && "$TASKS_VAL_MODEL" != "default" ]]; then
+            codex_args+=(-m "$TASKS_VAL_MODEL")
+        fi
+
+        codex_args+=("$prompt")
+
+        log_info "Running tasks validation with codex..." >&2
+        if run_codex_with_timeout "$output_file" 600 1 5 "${codex_args[@]}"; then
+            log_success "Tasks validation phase completed" >&2
+        else
+            log_error "Tasks validation phase failed - see output file for details" >&2
+        fi
+    else
+        local -a claude_args=(
+            --dangerously-skip-permissions
+            --model "$TASKS_VAL_MODEL"
+            --print
+            --max-turns "$MAX_TURNS"
+        )
+
+        if [[ -n "$VERBOSE" ]]; then
+            claude_args+=("$VERBOSE")
+        fi
+
+        claude_args+=("$prompt")
+
+        log_info "Running tasks validation with claude..." >&2
+        if run_claude_with_timeout "$output_file" 600 1 5 "${claude_args[@]}"; then
+            log_success "Tasks validation phase completed" >&2
+        else
+            log_error "Tasks validation phase failed - see output file for details" >&2
+        fi
+    fi
+    set -e  # Re-enable exit on error
+
+    # Display output
+    cat "$output_file" >&2
+
+    log_summary "Tasks validation phase completed"
+
+    echo "$output_file"
+}
+
+# Run final plan validation (after cross-validation confirms)
+
+run_final_plan_validation() {
+    local iteration=$1
+    local output_file="$STATE_DIR/final-plan-validation-output-${iteration}.txt"
+
+    # All logs go to stderr
+    log_phase "FINAL PLAN VALIDATION PHASE - Iteration $iteration" >&2
+    log_info "Validating that the original plan was actually implemented" >&2
+    log_info "Using final plan validation AI: $FINAL_PLAN_AI" >&2
+    log_info "Model: $FINAL_PLAN_MODEL" >&2
+
+    local prompt
+    prompt=$(generate_final_plan_validation_prompt)
+
+    set +e  # Temporarily disable exit on error
+    if [[ "$FINAL_PLAN_AI" == "codex" ]]; then
+        local -a codex_args=(
+            --dangerously-bypass-approvals-and-sandbox
+        )
+
+        if [[ -n "$FINAL_PLAN_MODEL" && "$FINAL_PLAN_MODEL" != "default" ]]; then
+            codex_args+=(-m "$FINAL_PLAN_MODEL")
+        fi
+
+        codex_args+=("$prompt")
+
+        log_info "Running final plan validation with codex..." >&2
+        if run_codex_with_timeout "$output_file" 1800 1 5 "${codex_args[@]}"; then
+            log_success "Final plan validation phase completed" >&2
+        else
+            log_error "Final plan validation phase failed - see output file for details" >&2
+        fi
+    else
+        local -a claude_args=(
+            --dangerously-skip-permissions
+            --model "$FINAL_PLAN_MODEL"
+            --print
+            --max-turns "$MAX_TURNS"
+        )
+
+        if [[ -n "$VERBOSE" ]]; then
+            claude_args+=("$VERBOSE")
+        fi
+
+        claude_args+=("$prompt")
+
+        log_info "Running final plan validation with claude..." >&2
+        if run_claude_with_timeout "$output_file" 1800 1 5 "${claude_args[@]}"; then
+            log_success "Final plan validation phase completed" >&2
+        else
+            log_error "Final plan validation phase failed - see output file for details" >&2
+        fi
+    fi
+    set -e  # Re-enable exit on error
+
+    # Display output
+    cat "$output_file" >&2
+
+    save_iteration_state "$iteration" "final_plan_validation" "$output_file"
+    log_summary "Iteration $iteration: Final plan validation phase completed"
+
+    echo "$output_file"
+}
+

@@ -37,9 +37,11 @@ Activate this skill when you want to:
 
 ### Phase 1: CI/CD Monitoring & Fixing
 - Checks GitHub Actions status
+- **ALL checks MUST pass - NO exceptions, NO "non-blocking" judgments, NO skipping ANY failed job**
 - Identifies failing checks
 - Attempts to fix failures
 - Re-runs checks until all pass (max 5 iterations)
+- **If ANY check has conclusion=FAILURE, the PR is NOT ready to merge - period**
 
 ### Phase 2: CodeRabbit Feedback Loop
 - Fetches CodeRabbit review comments
@@ -52,7 +54,7 @@ Activate this skill when you want to:
 - **If max iterations reached with unresolved comments: FAIL the merge - do NOT proceed**
 
 ### Phase 3: Merge PR
-- Validates all checks pass
+- **GATE CHECK**: Validates ALL checks have conclusion=SUCCESS (SKIPPED is OK). If ANY check has FAILURE → STOP, do NOT merge
 - Verifies no unresolved comments
 - Executes rebase merge (`gh pr merge --rebase`)
 - Auto-deletes remote branch
@@ -106,15 +108,18 @@ Each repository must have `.claude/pr-merger.json`:
 
 ## Safety Features
 
-1. **Never push failing tests** - All tests must pass before pushing
-2. **NEVER skip CodeRabbit feedback** - ALL comments must be addressed, regardless of severity
-3. **Max iteration limits** - Prevents infinite loops; if reached with unresolved comments, merge FAILS
-4. **Protected branch detection** - Never deletes main/master/develop
-5. **Merge conflict detection** - Stops and reports if conflicts exist
-6. **Approval requirement check** - Reports if approvals needed
-7. **Config file required** - Stops if configuration missing
+1. **NEVER merge with ANY failed CI check** - If ANY job has conclusion=FAILURE, the merge MUST NOT proceed. The agent has ZERO authority to classify checks as "blocking" vs "non-blocking". A failed check is a failed check. Period.
+2. **Never push failing tests** - All tests must pass before pushing
+3. **NEVER skip CodeRabbit feedback** - ALL comments must be addressed, regardless of severity
+4. **Max iteration limits** - Prevents infinite loops; if reached with unresolved comments, merge FAILS
+5. **Protected branch detection** - Never deletes main/master/develop
+6. **Merge conflict detection** - Stops and reports if conflicts exist
+7. **Approval requirement check** - Reports if approvals needed
+8. **Config file required** - Stops if configuration missing
 
-**CRITICAL RULE**: The agent has **ZERO authority** to decide which CodeRabbit comments to skip. Every comment (Trivial, Minor, Major, Critical) MUST be addressed in each iteration. If the agent cannot resolve all comments within max iterations, it MUST fail the merge and report to the user.
+**CRITICAL RULE 1 — CI CHECKS**: The agent has **ZERO authority** to classify CI checks as "blocking" or "non-blocking". If `gh pr checks` shows ANY check with conclusion `FAILURE`, the merge MUST NOT proceed. The agent MUST either fix the failure or FAIL the merge and report to the user. There are NO exceptions — not for "pre-existing" failures, not for "informational" checks, not for any reason.
+
+**CRITICAL RULE 2 — CODERABBIT**: The agent has **ZERO authority** to decide which CodeRabbit comments to skip. Every comment (Trivial, Minor, Major, Critical) MUST be addressed in each iteration. If the agent cannot resolve all comments within max iterations, it MUST fail the merge and report to the user.
 
 ## Implementation
 
@@ -128,18 +133,24 @@ When invoking this skill, use this EXACT prompt structure:
 You are the pr-merger-agent. Your job is to shepherd Pull Request #[PR_NUMBER] through the complete merge lifecycle:
 
 **CRITICAL RULES - DO NOT VIOLATE:**
+- You have ZERO authority to classify CI checks as "blocking" or "non-blocking". If ANY check has conclusion=FAILURE, you MUST fix it or FAIL the merge. NO EXCEPTIONS. Not for "pre-existing" failures, not for "informational" checks, not for ANY reason.
 - You have ZERO authority to skip CodeRabbit feedback
 - You MUST fix ALL comments regardless of severity (Trivial, Minor, Major, Critical)
 - You MUST NOT make judgment calls about which comments are "important enough" to fix
+- You MUST NOT make judgment calls about which CI checks are "important enough" to pass
+- If ANY CI check shows FAILURE at merge time, you MUST NOT merge. FAIL and report to user.
 - If max iterations is reached with unresolved comments, you MUST FAIL the merge
 - NEVER proceed to merge if any CodeRabbit comments remain unaddressed
+- NEVER proceed to merge if any CI check has conclusion=FAILURE
 
 1. **Phase 1: CI/CD Monitoring & Fixing**
-   - Check GitHub Actions status for PR #[PR_NUMBER]
+   - Check GitHub Actions status for PR #[PR_NUMBER]: `gh pr checks [PR_NUMBER]`
+   - If ANY check has conclusion=FAILURE, the PR is NOT ready. You MUST fix it or FAIL.
+   - You have ZERO authority to judge a failed check as "non-blocking", "informational", or "pre-existing". Failed = failed.
    - Identify any failing checks
    - Attempt to fix failures
-   - Re-run checks until all pass (max [maxCIFixIterations] iterations)
-   - If max iterations reached with failing checks, FAIL and report to user
+   - Re-run checks until ALL pass (max [maxCIFixIterations] iterations)
+   - If max iterations reached with ANY failing checks, FAIL and report to user
 
 2. **Phase 2: CodeRabbit Feedback Loop**
    - Fetch CodeRabbit review comments using `get-coderabbit-comments-with-timestamps.sh [PR_NUMBER]`
@@ -153,7 +164,7 @@ You are the pr-merger-agent. Your job is to shepherd Pull Request #[PR_NUMBER] t
    - If max iterations reached with unresolved comments, FAIL the merge and report to user
 
 3. **Phase 3: Merge PR**
-   - Validate all checks pass
+   - **GATE CHECK (MANDATORY)**: Run `gh pr checks [PR_NUMBER]` and verify EVERY check has conclusion SUCCESS or SKIPPED. If ANY check has FAILURE → STOP IMMEDIATELY, do NOT merge, FAIL and report to user.
    - Validate no unresolved CodeRabbit comments exist
    - Verify no merge conflicts
    - Execute rebase merge: `gh pr merge [PR_NUMBER] --rebase --delete-branch`
@@ -172,6 +183,7 @@ You are the pr-merger-agent. Your job is to shepherd Pull Request #[PR_NUMBER] t
 - maxCodeRabbitIterations: [maxCodeRabbitIterations]
 
 **Safety Rules:**
+- NEVER merge with ANY failed CI check (conclusion=FAILURE). You have ZERO authority to classify checks as blocking/non-blocking.
 - NEVER push failing tests
 - NEVER skip CodeRabbit feedback
 - Stop if merge conflicts exist
@@ -179,7 +191,8 @@ You are the pr-merger-agent. Your job is to shepherd Pull Request #[PR_NUMBER] t
 - Respect max iteration limits
 - Never delete protected branches (main/master/develop)
 
-**Failure Conditions**:
+**Failure Conditions (ANY of these = FAIL, do NOT merge)**:
+- ANY CI check has conclusion=FAILURE at merge time
 - Tests fail after applying fixes
 - Max CI iterations reached with failing checks
 - Max CodeRabbit iterations reached with unresolved comments
