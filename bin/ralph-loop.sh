@@ -51,7 +51,7 @@ source "${LIB_DIR}/phases.sh"
 source "${LIB_DIR}/main-loop.sh"
 
 # Set up cleanup trap
-trap cleanup EXIT INT TERM
+trap cleanup INT TERM
 
 # Run main entry point
 main "$@"
