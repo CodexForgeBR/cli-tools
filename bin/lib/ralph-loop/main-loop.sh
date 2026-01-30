@@ -357,28 +357,6 @@ main_validate_setup() {
         fi
     fi
 
-    # Initialize state if not resuming
-    if [[ $resuming -eq 0 ]]; then
-        init_state_dir
-        init_learnings_file
-        log_summary "Started Ralph Loop with $initial_unchecked unchecked tasks"
-        log_summary "AI CLI: $AI_CLI"
-        log_summary "Implementation model: $IMPL_MODEL, Validation model: $VAL_MODEL"
-
-        SCRIPT_START_TIME=$(get_timestamp)
-    else
-        # Resuming - use existing state
-        log_summary "Resumed Ralph Loop at iteration $iteration"
-
-        # Initialize learnings file if needed (for resumed sessions)
-        init_learnings_file
-
-        # Convert started_at from ISO format to timestamp if needed
-        if [[ "$SCRIPT_START_TIME" =~ ^[0-9]{4}- ]]; then
-            SCRIPT_START_TIME=$(date -d "$SCRIPT_START_TIME" +%s 2>/dev/null || get_timestamp)
-        fi
-    fi
-
     log_info "Max iterations: $MAX_ITERATIONS"
     log_info "AI CLI: $AI_CLI"
     log_info "Implementation model: $IMPL_MODEL"
@@ -641,9 +619,34 @@ except Exception as e:
 # ----------------------------------------------------------------------------
 main_handle_schedule() {
 
-    
     log_debug "Checking for scheduled start time..."
-    
+
+    # Initialize state directory if not resuming (moved here to run AFTER tasks validation)
+    if [[ $resuming -eq 0 ]]; then
+        init_state_dir
+        init_learnings_file
+
+        local initial_unchecked
+        initial_unchecked=$(count_unchecked_tasks "$TASKS_FILE")
+
+        log_summary "Started Ralph Loop with $initial_unchecked unchecked tasks"
+        log_summary "AI CLI: $AI_CLI"
+        log_summary "Implementation model: $IMPL_MODEL, Validation model: $VAL_MODEL"
+
+        SCRIPT_START_TIME=$(get_timestamp)
+    else
+        # Resuming - use existing state
+        log_summary "Resumed Ralph Loop at iteration $iteration"
+
+        # Initialize learnings file if needed (for resumed sessions)
+        init_learnings_file
+
+        # Convert started_at from ISO format to timestamp if needed
+        if [[ "$SCRIPT_START_TIME" =~ ^[0-9]{4}- ]]; then
+            SCRIPT_START_TIME=$(date -d "$SCRIPT_START_TIME" +%s 2>/dev/null || get_timestamp)
+        fi
+    fi
+
     # Handle scheduled start time
     if [[ -n "$SCHEDULE_TARGET_EPOCH" ]]; then
         # Check if resuming during waiting phase
