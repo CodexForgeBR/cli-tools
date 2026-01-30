@@ -13,3 +13,6 @@
 # Temporary files
 *.tmp
 *.bak
+
+# Spec-driven development working directories
+specs/
