@@ -139,17 +139,18 @@ COMMON LIES TO CATCH:
 
 VERDICT OPTIONS:
 
-1. PASS - All tasks done correctly, no lies detected
-2. NEEDS_FIXES - Some tasks incomplete/wrong, fixable
+1. COMPLETE - All tasks done correctly, no lies detected
+2. NEEDS_MORE_WORK - Some tasks incomplete/wrong, fixable
 3. INADMISSIBLE - Used inadmissible practices, major problems
-4. BLOCKED - Real external blocker (rare, be skeptical)
+4. ESCALATE - Implementation fundamentally broken or stuck in loop
+5. BLOCKED - Real external blocker (rare, be skeptical)
 
 OUTPUT FORMAT:
 
 ```json
 {
   "RALPH_VALIDATION": {
-    "verdict": "PASS|NEEDS_FIXES|INADMISSIBLE|BLOCKED",
+    "verdict": "COMPLETE|NEEDS_MORE_WORK|INADMISSIBLE|ESCALATE|BLOCKED",
     "feedback": "Specific, actionable feedback on what's wrong",
     "completed_tasks": ["IDs of tasks that are ACTUALLY done"],
     "incomplete_tasks": ["IDs of tasks not done or done wrong"],
