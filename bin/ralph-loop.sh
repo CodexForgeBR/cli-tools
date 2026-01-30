@@ -109,6 +109,14 @@ TASKS_VAL_AI_AVAILABLE=0     # Whether tasks validation AI is installed
 OVERRIDE_TASKS_VAL_AI=""     # Override tasks validation AI
 OVERRIDE_TASKS_VAL_MODEL=""  # Override tasks validation model
 
+# Notification configuration
+NOTIFY_WEBHOOK=""             # Webhook URL for notifications (defaults to http://127.0.0.1:18789/webhook)
+NOTIFY_CHANNEL=""             # Channel name for routing (default: telegram)
+NOTIFY_CHAT_ID=""             # Recipient chat ID
+OVERRIDE_NOTIFY_WEBHOOK=""    # Override notification webhook
+OVERRIDE_NOTIFY_CHANNEL=""    # Override notification channel
+OVERRIDE_NOTIFY_CHAT_ID=""    # Override notification chat ID
+
 # Retry state tracking for resume
 CURRENT_RETRY_ATTEMPT=1
 CURRENT_RETRY_DELAY=5
@@ -122,6 +130,199 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# Load configuration from file
+# Usage: load_config <config_file_path>
+load_config() {
+    local config_file="$1"
+
+    [[ ! -f "$config_file" ]] && return 0
+
+    log_debug "Loading config from: $config_file"
+
+    # Whitelist of allowed config variables (security: prevent arbitrary code execution)
+    local allowed_vars=(
+        AI_CLI IMPL_MODEL VAL_MODEL
+        CROSS_VALIDATE CROSS_AI CROSS_MODEL
+        FINAL_PLAN_AI FINAL_PLAN_MODEL
+        TASKS_VAL_AI TASKS_VAL_MODEL
+        MAX_ITERATIONS MAX_INADMISSIBLE MAX_CLAUDE_RETRY MAX_TURNS
+        INACTIVITY_TIMEOUT
+        TASKS_FILE ORIGINAL_PLAN_FILE LEARNINGS_FILE
+        ENABLE_LEARNINGS VERBOSE
+        NOTIFY_WEBHOOK NOTIFY_CHANNEL NOTIFY_CHAT_ID
+    )
+
+    # Read config file line by line
+    while IFS='=' read -r key value || [[ -n "$key" ]]; do
+        # Skip comments and empty lines
+        [[ "$key" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$key" ]] && continue
+
+        # Trim whitespace
+        key=$(echo "$key" | xargs)
+        value=$(echo "$value" | xargs)
+
+        # Skip if key is empty after trimming
+        [[ -z "$key" ]] && continue
+
+        # Check if variable is whitelisted
+        local allowed=0
+        for allowed_var in "${allowed_vars[@]}"; do
+            if [[ "$key" == "$allowed_var" ]]; then
+                allowed=1
+                break
+            fi
+        done
+
+        if [[ $allowed -eq 0 ]]; then
+            log_debug "Skipping unknown config variable: $key"
+            continue
+        fi
+
+        # Store config value with CONFIG_ prefix (to not override CLI flags)
+        eval "CONFIG_${key}=\"${value}\""
+        log_debug "Loaded config: $key=$value"
+    done < "$config_file"
+
+    return 0
+}
+
+# Apply config values where CLI flags were NOT provided
+# Called after parse_args, applies config values only if override flags are not set
+apply_config() {
+    # AI Configuration
+    [[ -z "$OVERRIDE_AI" && -n "$CONFIG_AI_CLI" ]] && AI_CLI="$CONFIG_AI_CLI"
+    [[ -z "$OVERRIDE_IMPL_MODEL" && -n "$CONFIG_IMPL_MODEL" ]] && IMPL_MODEL="$CONFIG_IMPL_MODEL"
+    [[ -z "$OVERRIDE_VAL_MODEL" && -n "$CONFIG_VAL_MODEL" ]] && VAL_MODEL="$CONFIG_VAL_MODEL"
+
+    # Cross-validation
+    [[ -n "$CONFIG_CROSS_VALIDATE" ]] && CROSS_VALIDATE="$CONFIG_CROSS_VALIDATE"
+    [[ -z "$OVERRIDE_CROSS_AI" && -n "$CONFIG_CROSS_AI" ]] && CROSS_AI="$CONFIG_CROSS_AI"
+    [[ -n "$CONFIG_CROSS_MODEL" ]] && CROSS_MODEL="$CONFIG_CROSS_MODEL"
+
+    # Final plan validation
+    [[ -z "$OVERRIDE_FINAL_PLAN_AI" && -n "$CONFIG_FINAL_PLAN_AI" ]] && FINAL_PLAN_AI="$CONFIG_FINAL_PLAN_AI"
+    [[ -z "$OVERRIDE_FINAL_PLAN_MODEL" && -n "$CONFIG_FINAL_PLAN_MODEL" ]] && FINAL_PLAN_MODEL="$CONFIG_FINAL_PLAN_MODEL"
+
+    # Tasks validation
+    [[ -z "$OVERRIDE_TASKS_VAL_AI" && -n "$CONFIG_TASKS_VAL_AI" ]] && TASKS_VAL_AI="$CONFIG_TASKS_VAL_AI"
+    [[ -z "$OVERRIDE_TASKS_VAL_MODEL" && -n "$CONFIG_TASKS_VAL_MODEL" ]] && TASKS_VAL_MODEL="$CONFIG_TASKS_VAL_MODEL"
+
+    # Iteration limits
+    [[ -z "$OVERRIDE_MAX_ITERATIONS" && -n "$CONFIG_MAX_ITERATIONS" ]] && MAX_ITERATIONS="$CONFIG_MAX_ITERATIONS"
+    [[ -z "$OVERRIDE_MAX_INADMISSIBLE" && -n "$CONFIG_MAX_INADMISSIBLE" ]] && MAX_INADMISSIBLE="$CONFIG_MAX_INADMISSIBLE"
+    [[ -n "$CONFIG_MAX_CLAUDE_RETRY" ]] && MAX_CLAUDE_RETRY="$CONFIG_MAX_CLAUDE_RETRY"
+    [[ -n "$CONFIG_MAX_TURNS" ]] && MAX_TURNS="$CONFIG_MAX_TURNS"
+    [[ -n "$CONFIG_INACTIVITY_TIMEOUT" ]] && INACTIVITY_TIMEOUT="$CONFIG_INACTIVITY_TIMEOUT"
+
+    # File paths
+    [[ -n "$CONFIG_TASKS_FILE" ]] && TASKS_FILE="$CONFIG_TASKS_FILE"
+    [[ -n "$CONFIG_ORIGINAL_PLAN_FILE" ]] && ORIGINAL_PLAN_FILE="$CONFIG_ORIGINAL_PLAN_FILE"
+    [[ -n "$CONFIG_LEARNINGS_FILE" ]] && LEARNINGS_FILE="$CONFIG_LEARNINGS_FILE"
+
+    # Features
+    [[ -n "$CONFIG_ENABLE_LEARNINGS" ]] && ENABLE_LEARNINGS="$CONFIG_ENABLE_LEARNINGS"
+    [[ -n "$CONFIG_VERBOSE" ]] && VERBOSE="$CONFIG_VERBOSE"
+
+    # Notifications (apply defaults if not overridden)
+    if [[ -z "$OVERRIDE_NOTIFY_WEBHOOK" ]]; then
+        if [[ -n "$CONFIG_NOTIFY_WEBHOOK" ]]; then
+            NOTIFY_WEBHOOK="$CONFIG_NOTIFY_WEBHOOK"
+        else
+            NOTIFY_WEBHOOK="http://127.0.0.1:18789/webhook"
+        fi
+    fi
+
+    if [[ -z "$OVERRIDE_NOTIFY_CHANNEL" ]]; then
+        if [[ -n "$CONFIG_NOTIFY_CHANNEL" ]]; then
+            NOTIFY_CHANNEL="$CONFIG_NOTIFY_CHANNEL"
+        else
+            NOTIFY_CHANNEL="telegram"
+        fi
+    fi
+
+    [[ -z "$OVERRIDE_NOTIFY_CHAT_ID" && -n "$CONFIG_NOTIFY_CHAT_ID" ]] && NOTIFY_CHAT_ID="$CONFIG_NOTIFY_CHAT_ID"
+}
+
+# Send notification via OpenClaw CLI
+# Usage: send_notification <event> <message> <exit_code>
+send_notification() {
+    local event="$1"
+    local message="$2"
+    local exit_code="${3:-0}"
+
+    # Silent no-op if chat ID not configured
+    [[ -z "$NOTIFY_CHAT_ID" ]] && return 0
+
+    # Check if openclaw is installed
+    if ! command -v openclaw >/dev/null 2>&1; then
+        log_debug "openclaw not installed, skipping notification"
+        return 0
+    fi
+
+    # Calculate elapsed time
+    local elapsed=0
+    if [[ -n "$SCRIPT_START_TIME" ]]; then
+        elapsed=$(($(get_timestamp) - SCRIPT_START_TIME))
+    fi
+
+    # Build notification message with emoji based on event
+    local emoji="ℹ️"
+    case "$event" in
+        completed) emoji="✅" ;;
+        max_iterations) emoji="⏱️" ;;
+        escalate) emoji="🚨" ;;
+        blocked) emoji="🚧" ;;
+        tasks_invalid) emoji="❌" ;;
+        inadmissible) emoji="⛔" ;;
+        interrupted) emoji="⏸️" ;;
+    esac
+
+    # Format the full notification message
+    local full_message
+    full_message=$(cat <<NOTIF_MSG
+$emoji Ralph Loop: $event
+
+$message
+
+Project: $(basename "$(pwd)")
+Session: ${SESSION_ID:-unknown}
+Iteration: ${CURRENT_ITERATION:-0}/${MAX_ITERATIONS}
+Exit Code: $exit_code
+NOTIF_MSG
+)
+
+    # Fire-and-forget: notifications must never block the loop
+    # Send via OpenClaw CLI in background with timeout fallback
+    # Use gtimeout on macOS (via brew install coreutils), or regular timeout on Linux
+    local timeout_cmd=""
+    if command -v timeout >/dev/null 2>&1; then
+        timeout_cmd="timeout 10s"
+    elif command -v gtimeout >/dev/null 2>&1; then
+        timeout_cmd="gtimeout 10s"
+    fi
+
+    # Send notification (with timeout if available)
+    if [[ -n "$timeout_cmd" ]]; then
+        $timeout_cmd openclaw message send \
+            --channel "${NOTIFY_CHANNEL:-telegram}" \
+            --target "$NOTIFY_CHAT_ID" \
+            --message "$full_message" \
+            >/dev/null 2>&1 || true
+    else
+        # No timeout available, run with background job and kill after 10s
+        openclaw message send \
+            --channel "${NOTIFY_CHANNEL:-telegram}" \
+            --target "$NOTIFY_CHAT_ID" \
+            --message "$full_message" \
+            >/dev/null 2>&1 &
+        local notify_pid=$!
+        ( sleep 10 && kill -9 $notify_pid 2>/dev/null ) &
+    fi
+
+    log_debug "Notification sent via OpenClaw: event=$event, exit_code=$exit_code"
+}
+
 
 # Cleanup handler for graceful shutdown
 cleanup() {
@@ -132,6 +333,10 @@ cleanup() {
 
     echo -e "${GREEN}State saved to ${STATE_DIR}/${NC}"
     echo -e "${CYAN}Run '$(basename "$0") --resume' to continue where you left off${NC}"
+
+    # Send interruption notification
+    send_notification "interrupted" "Ralph loop interrupted by user (iteration $CURRENT_ITERATION)" 130
+
     exit 130
 }
 
@@ -384,6 +589,10 @@ Options:
   --tasks-validation-model M         Model for tasks validation (default: same as implementation)
   --start-at DATETIME        Schedule when implementation begins (validation runs immediately)
                              Formats: YYYY-MM-DD, HH:MM, "YYYY-MM-DD HH:MM", YYYY-MM-DDTHH:MM
+  --notify-webhook URL       Webhook URL for notifications (default: http://127.0.0.1:18789/webhook)
+  --notify-channel NAME      Channel name for routing (default: telegram)
+  --notify-chat-id ID        Recipient chat ID (for Telegram, Discord, etc.)
+  --config PATH              Additional config file to load (highest priority after CLI flags)
   --resume                   Resume from last interrupted session
   --resume-force             Resume even if tasks.md has changed
   --clean                    Start fresh, delete existing .ralph-loop state
@@ -424,6 +633,44 @@ Original Plan Validation:
      - Does NOT reference tasks.md - only the plan and codebase
      - If NOT_IMPLEMENTED: continues loop with feedback
      - If CONFIRMED: marks session as truly complete
+
+Configuration Files:
+  Config files provide defaults for all flags using layered precedence:
+    1. Script defaults (hardcoded)
+    2. Global config: ~/.config/ralph-loop/config
+    3. Project config: .ralph-loop/config
+    4. CLI flags (highest priority, always win)
+
+  Config file format (shell-sourceable KEY=VALUE):
+    AI_CLI=claude
+    IMPL_MODEL=opus
+    MAX_ITERATIONS=30
+    NOTIFY_WEBHOOK=http://127.0.0.1:18789/webhook
+    NOTIFY_CHANNEL=telegram
+    NOTIFY_CHAT_ID=123456789
+
+  See ~/.config/ralph-loop/config for full example with all options.
+
+Notifications:
+  Ralph loop can send notifications to OpenClaw or any webhook endpoint at
+  completion, failure, or escalation events. Notifications are fire-and-forget
+  (never block the loop). Configure via config file or CLI flags.
+
+  Notification events:
+    - completed: All tasks finished successfully
+    - max_iterations: Iteration limit reached
+    - escalate: Human intervention requested
+    - blocked: Tasks blocked
+    - inadmissible: Repeated inadmissible practices
+    - tasks_invalid: Tasks don't implement plan
+    - interrupted: User interrupted (Ctrl+C)
+
+  OpenClaw integration:
+    1. Install: npm install -g openclaw@latest
+    2. Onboard: openclaw onboard --install-daemon
+    3. Pair Telegram: openclaw pairing approve telegram <code>
+    4. Configure: Set NOTIFY_CHAT_ID in config file
+    5. Run ralph-loop - notifications go to your Telegram
 
 Session Management:
   When a session is interrupted (Ctrl+C), state is automatically saved.
@@ -682,6 +929,46 @@ parse_args() {
             --no-learnings)
                 ENABLE_LEARNINGS=0
                 shift
+                ;;
+            --notify-webhook)
+                if [[ -z "$2" ]]; then
+                    log_error "Missing value for --notify-webhook"
+                    exit 1
+                fi
+                NOTIFY_WEBHOOK="$2"
+                OVERRIDE_NOTIFY_WEBHOOK="1"
+                shift 2
+                ;;
+            --notify-channel)
+                if [[ -z "$2" ]]; then
+                    log_error "Missing value for --notify-channel"
+                    exit 1
+                fi
+                NOTIFY_CHANNEL="$2"
+                OVERRIDE_NOTIFY_CHANNEL="1"
+                shift 2
+                ;;
+            --notify-chat-id)
+                if [[ -z "$2" ]]; then
+                    log_error "Missing value for --notify-chat-id"
+                    exit 1
+                fi
+                NOTIFY_CHAT_ID="$2"
+                OVERRIDE_NOTIFY_CHAT_ID="1"
+                shift 2
+                ;;
+            --config)
+                if [[ -z "$2" ]]; then
+                    log_error "Missing value for --config"
+                    exit 1
+                fi
+                if [[ ! -f "$2" ]]; then
+                    log_error "Config file not found: $2"
+                    exit 1
+                fi
+                # Load additional config file (highest priority after CLI flags)
+                load_config "$2"
+                shift 2
                 ;;
             --start-at|--at)
                 if [[ -z "$2" ]]; then
@@ -4005,7 +4292,14 @@ run_final_plan_validation() {
 
 # Main loop
 main() {
+    # Load config files before parsing args (precedence: CLI > project > global > defaults)
+    load_config "$HOME/.config/ralph-loop/config"  # Global config
+    load_config ".ralph-loop/config"               # Project config
+
     parse_args "$@"
+
+    # Apply config values where CLI flags were not provided
+    apply_config
 
     set_default_models_for_ai
     set_cross_validation_ai
@@ -4397,6 +4691,10 @@ PYTHON_EOF
             # Clean up session since loop never started (same as AI validation failure)
             log_info "Cleaning up session directory..."
             rm -rf "$STATE_DIR"
+
+            # Send tasks invalid notification
+            send_notification "tasks_invalid" "Tasks don't properly implement the plan (template violations detected)" $EXIT_TASKS_INVALID
+
             exit $EXIT_TASKS_INVALID
         fi
 
@@ -4504,6 +4802,10 @@ except Exception as e:
             # Clean up session since loop never started
             log_info "Cleaning up session directory..."
             rm -rf "$STATE_DIR"
+
+            # Send tasks invalid notification
+            send_notification "tasks_invalid" "Tasks don't properly implement the original plan" $EXIT_TASKS_INVALID
+
             exit $EXIT_TASKS_INVALID
         fi
 
@@ -4661,6 +4963,10 @@ except Exception as e:
 
                             log_info "Cleaning up session directory..."
                             rm -rf "$STATE_DIR"
+
+                            # Send success notification
+                            send_notification "completed" "All tasks completed in $iteration iterations ($(format_duration $total_elapsed))" $EXIT_SUCCESS
+
                             exit $EXIT_SUCCESS
                         else
                             # REJECTED - set feedback and continue to next iteration
@@ -4927,6 +5233,10 @@ except Exception as e:
 
                             log_info "Cleaning up session directory..."
                             rm -rf "$STATE_DIR"
+
+                            # Send success notification
+                            send_notification "completed" "All tasks completed in $iteration iterations ($(format_duration $total_elapsed))" $EXIT_SUCCESS
+
                             exit $EXIT_SUCCESS
                         else
                             # REJECTED - continue loop with cross-validation feedback
@@ -5017,6 +5327,9 @@ except Exception as e:
                     echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
                     echo -e "Blocked tasks:\n$blocked_tasks\n"
 
+                    # Send blocked notification
+                    send_notification "blocked" "All $blocked_count remaining tasks blocked - human intervention required ($(format_duration $total_elapsed))" $EXIT_BLOCKED
+
                     exit $EXIT_BLOCKED
                 fi
                 ;;
@@ -5045,6 +5358,9 @@ except Exception as e:
                 printf "${RED}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$iteration" "$(format_duration $total_elapsed)"
                 echo -e "${RED}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
                 echo -e "Reason: $feedback\n"
+
+                # Send escalation notification
+                send_notification "escalate" "Needs human escalation: $feedback ($(format_duration $total_elapsed))" $EXIT_ESCALATE
 
                 exit $EXIT_ESCALATE
                 ;;
@@ -5077,6 +5393,9 @@ except Exception as e:
                     echo -e "$feedback\n"
                     echo -e "${YELLOW}The implementation model repeatedly used forbidden approaches.${NC}"
                     echo -e "${YELLOW}This requires human intervention to redesign the solution.${NC}\n"
+
+                    # Send inadmissible notification
+                    send_notification "inadmissible" "Repeated inadmissible practices ($INADMISSIBLE_COUNT violations) - needs redesign ($(format_duration $total_elapsed))" $EXIT_INADMISSIBLE
 
                     exit $EXIT_INADMISSIBLE
                 fi
@@ -5136,6 +5455,9 @@ except Exception as e:
                     echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
                     echo -e "Blocked tasks:\n$blocked_tasks\n"
 
+                    # Send blocked notification
+                    send_notification "blocked" "All $blocked_count remaining tasks blocked - human intervention required ($(format_duration $total_elapsed))" $EXIT_BLOCKED
+
                     exit $EXIT_BLOCKED
                 fi
                 ;;
@@ -5170,6 +5492,9 @@ except Exception as e:
     printf "${YELLOW}║  Iterations: %-3d              Total time: %-18s║${NC}\n" "$MAX_ITERATIONS" "$(format_duration $total_elapsed)"
     printf "${YELLOW}║  Tasks remaining: %-44d║${NC}\n" "$final_unchecked"
     echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════════╝${NC}\n"
+
+    # Send max iterations notification
+    send_notification "max_iterations" "Exhausted $MAX_ITERATIONS iterations with $final_unchecked tasks remaining ($(format_duration $total_elapsed))" $EXIT_MAX_ITERATIONS
 
     exit $EXIT_MAX_ITERATIONS
 }
