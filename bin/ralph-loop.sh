@@ -1,26 +1,27 @@
-#!/usr/bin/env bash
-################################################################################
-# RALPH Loop - Recursive Agent Learning & Performance Harness
-################################################################################
+#!/bin/bash
+
+# Ralph Loop - Dual-Model Validation Loop for Spec-Driven Development
+# Based on the Ralph Wiggum technique by Geoffrey Huntley (May 2025)
 #
-# This is a modular agent orchestration framework that runs continuous
-# AI-powered task execution loops with automatic error recovery, state
-# persistence, and intelligent model selection.
+# Usage: ralph-loop.sh [OPTIONS]
 #
-# Key Features:
-# - Task queue management with priority scheduling
-# - Multi-model support (Claude, OpenAI, Gemini, local models)
-# - Automatic error recovery and retry logic
-# - State persistence across runs
-# - Performance tracking and analytics
-# - OpenClaw webhook notifications
-# - Configurable via YAML
+# Options:
+#   -v, --verbose            Pass verbose flag to claude code cli
+#   --ai CLI                 AI CLI to use: claude or codex (default: claude)
+#   --max-iterations N       Maximum loop iterations (default: 20)
+#   --max-inadmissible N     Max inadmissible violations before escalation (default: 5)
+#   --implementation-model   Model for implementation (default: opus for claude, config default for codex)
+#   --validation-model       Model for validation (default: opus for claude, config default for codex)
+#   --tasks-file PATH        Path to tasks.md (auto-detects: ./tasks.md, specs/*/tasks.md)
 #
-# Usage: ralph-loop.sh [options]
-#        See -h/--help for full options
-#
-# Architecture: Modular design with separated concerns (see lib/ralph/)
-################################################################################
+# Exit Codes:
+#   0 - All tasks completed successfully
+#   1 - Error (no tasks.md, invalid params, etc.)
+#   2 - Max iterations reached without completion
+#   3 - Escalation requested by validator
+#   4 - Tasks blocked - human intervention needed
+#   5 - Tasks don't properly implement the plan
+#   6 - Repeated inadmissible practices (max violations exceeded)
 
 set -e
 
