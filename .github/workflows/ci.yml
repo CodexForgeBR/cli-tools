@@ -9,6 +9,14 @@ on:
       - "go.sum"
       - ".github/workflows/ci.yml"
       - ".golangci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/ci.yml"
+      - ".golangci.yml"
 
 jobs:
   test:
@@ -47,3 +55,25 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go build -v ./cmd/ralph-loop/
+
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [test, lint, build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: v6.1.0
+          args: release --snapshot --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
