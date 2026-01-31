@@ -586,7 +586,7 @@ func TestBuildFinalPlanPrompt_IncludesTasksFile(t *testing.T) {
 	result := BuildFinalPlanPrompt(specFile, tasksFile, planFile)
 
 	assert.Contains(t, result, tasksFile, "prompt should include the tasks file path")
-	assert.Contains(t, result, "TASKS FILE", "prompt should have tasks file label")
+	assert.Contains(t, result, "TASKS FILE (if different from plan):", "prompt should have tasks file label")
 }
 
 // TestBuildFinalPlanPrompt_IncludesPlanFile verifies that the plan file path
