@@ -519,7 +519,9 @@ func (o *Orchestrator) phaseIterationLoop(ctx context.Context) int {
 		}
 
 		// Run implementation phase
-		logging.Phase("Implementation phase")
+		logging.Phase(fmt.Sprintf("Implementation phase - Iteration %d", o.session.Iteration))
+		logging.Info(fmt.Sprintf("AI CLI: %s", o.Config.AIProvider))
+		logging.Info(fmt.Sprintf("Model: %s", o.Config.ImplModel))
 		implOutputPath := filepath.Join(iterDir, "implementation-output.txt")
 		implConfig := ImplementationConfig{
 			Runner:           o.ImplRunner,
@@ -540,6 +542,12 @@ func (o *Orchestrator) phaseIterationLoop(ctx context.Context) int {
 			continue
 		}
 
+		// Dump implementation output to stderr for visibility
+		if data, err := os.ReadFile(implOutputPath); err == nil && len(data) > 0 {
+			fmt.Fprintln(os.Stderr, string(data))
+		}
+		logging.Success("Implementation phase completed")
+
 		// Append learnings if any
 		if implResult.Learnings != "" && o.Config.EnableLearnings {
 			if err := learnings.AppendLearnings(o.Config.LearningsFile, o.session.Iteration, implResult.Learnings); err != nil {
@@ -553,7 +561,9 @@ func (o *Orchestrator) phaseIterationLoop(ctx context.Context) int {
 			logging.Warn(fmt.Sprintf("Failed to save validation state: %v", err))
 		}
 
-		logging.Phase("Validation phase")
+		logging.Phase(fmt.Sprintf("Validation phase - Iteration %d", o.session.Iteration))
+		logging.Info(fmt.Sprintf("AI CLI: %s", o.Config.AIProvider))
+		logging.Info(fmt.Sprintf("Model: %s", o.Config.ValModel))
 		valPrompt := prompt.BuildValidationPrompt(o.session.TasksFile, implOutputPath)
 		valOutputPath := filepath.Join(iterDir, "validation-output.txt")
 		valConfig := ValidationConfig{
@@ -571,6 +581,12 @@ func (o *Orchestrator) phaseIterationLoop(ctx context.Context) int {
 			}
 			continue
 		}
+
+		// Dump validation output to stderr for visibility
+		if data, err := os.ReadFile(valOutputPath); err == nil && len(data) > 0 {
+			fmt.Fprintln(os.Stderr, string(data))
+		}
+		logging.Success("Validation phase completed")
 
 		// Get current task counts
 		unchecked, _ := tasks.CountUnchecked(o.session.TasksFile)
@@ -610,6 +626,10 @@ func (o *Orchestrator) phaseIterationLoop(ctx context.Context) int {
 					ValOutputFile:    valOutputPath,
 					SpecFile:         specFile,
 					PlanFile:         o.Config.OriginalPlanFile,
+					CrossAI:          o.Config.CrossAI,
+					CrossModel:       o.Config.CrossModel,
+					FinalPlanAI:      o.Config.FinalPlanAI,
+					FinalPlanModel:   o.Config.FinalPlanModel,
 				})
 
 				if postResult.Action == "continue" {
