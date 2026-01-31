@@ -3,13 +3,6 @@ name: Release
 on:
   push:
     branches: [main]
-    paths:
-      - "**.go"
-      - "go.mod"
-      - "go.sum"
-      - ".github/workflows/**"
-      - ".golangci.yml"
-      - ".goreleaser.yml"
 
 permissions:
   contents: write
@@ -60,6 +53,8 @@ jobs:
         run: |
           echo "::error::Failed to create new tag"
           exit 1
+      - name: Fetch tags
+        run: git fetch --tags --force
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
