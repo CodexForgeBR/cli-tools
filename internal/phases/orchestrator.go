@@ -519,6 +519,7 @@ func (o *Orchestrator) phaseIterationLoop(ctx context.Context) int {
 		}
 
 		// Run implementation phase
+		logging.Phase("Implementation phase")
 		implOutputPath := filepath.Join(iterDir, "implementation-output.txt")
 		implConfig := ImplementationConfig{
 			Runner:           o.ImplRunner,
@@ -552,6 +553,7 @@ func (o *Orchestrator) phaseIterationLoop(ctx context.Context) int {
 			logging.Warn(fmt.Sprintf("Failed to save validation state: %v", err))
 		}
 
+		logging.Phase("Validation phase")
 		valPrompt := prompt.BuildValidationPrompt(o.session.TasksFile, implOutputPath)
 		valOutputPath := filepath.Join(iterDir, "validation-output.txt")
 		valConfig := ValidationConfig{
