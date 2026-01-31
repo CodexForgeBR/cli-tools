@@ -6,8 +6,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/CodexForgeBR/cli-tools/internal/exitcode"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/CodexForgeBR/cli-tools/internal/exitcode"
 )
 
 // TestRunPostValidationChain_SuccessFlow verifies complete success path

@@ -6,9 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/CodexForgeBR/cli-tools/internal/exitcode"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/CodexForgeBR/cli-tools/internal/exitcode"
 )
 
 // mockFinalPlanRunner is a mock AI runner for testing final plan validation.

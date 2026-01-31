@@ -5,9 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/CodexForgeBR/cli-tools/internal/ratelimit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/CodexForgeBR/cli-tools/internal/ratelimit"
 )
 
 // contextKey is a custom type for context keys to satisfy staticcheck SA1029.

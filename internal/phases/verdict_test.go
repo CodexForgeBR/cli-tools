@@ -3,8 +3,9 @@ package phases
 import (
 	"testing"
 
-	"github.com/CodexForgeBR/cli-tools/internal/exitcode"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/CodexForgeBR/cli-tools/internal/exitcode"
 )
 
 // TestProcessVerdict_AllTransitions uses table-driven tests to verify all verdict state transitions

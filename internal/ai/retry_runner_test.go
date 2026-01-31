@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CodexForgeBR/cli-tools/internal/ratelimit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/CodexForgeBR/cli-tools/internal/ratelimit"
 )
 
 // retryMockRunner is a test double for AIRunner used in retry runner tests.
