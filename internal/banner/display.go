@@ -1,12 +1,13 @@
 // Package banner provides colored banner display functions for the ralph-loop CLI.
 //
-// All banner functions write formatted output to stdout with color-coded headers
+// All banner functions write formatted output to stderr with color-coded headers
 // and separators. These are used to display session status, completion, errors,
 // and other important state transitions during ralph-loop execution.
 package banner
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/fatih/color"
@@ -41,14 +42,14 @@ var (
 //	═══════════════════════════════════════════════════
 func PrintStartupBanner(sessionID string, ai string, model string, tasksFile string) {
 	sep := headerColor("═══════════════════════════════════════════════════")
-	fmt.Println(sep)
-	fmt.Println(headerColor("  ralph-loop - AI Implementation-Validation Loop"))
-	fmt.Println(sep)
-	fmt.Printf("  Session:    %s\n", sessionID)
-	fmt.Printf("  AI:         %s\n", ai)
-	fmt.Printf("  Model:      %s\n", model)
-	fmt.Printf("  Tasks:      %s\n", tasksFile)
-	fmt.Println(sep)
+	fmt.Fprintln(os.Stderr, sep)
+	fmt.Fprintln(os.Stderr, headerColor("  ralph-loop - AI Implementation-Validation Loop"))
+	fmt.Fprintln(os.Stderr, sep)
+	fmt.Fprintf(os.Stderr, "  Session:    %s\n", sessionID)
+	fmt.Fprintf(os.Stderr, "  AI:         %s\n", ai)
+	fmt.Fprintf(os.Stderr, "  Model:      %s\n", model)
+	fmt.Fprintf(os.Stderr, "  Tasks:      %s\n", tasksFile)
+	fmt.Fprintln(os.Stderr, sep)
 }
 
 // PrintCompletionBanner displays the completion banner with stats.
@@ -66,11 +67,11 @@ func PrintStartupBanner(sessionID string, ai string, model string, tasksFile str
 //	═══════════════════════════════════════════════════
 func PrintCompletionBanner(iterations int, durationSecs int) {
 	sep := successColor("═══════════════════════════════════════════════════")
-	fmt.Println(sep)
-	fmt.Println(successColor("  ✓ All tasks completed successfully!"))
-	fmt.Printf("  Iterations: %d\n", iterations)
-	fmt.Printf("  Duration:   %s (%ds)\n", logging.FormatDuration(durationSecs), durationSecs)
-	fmt.Println(sep)
+	fmt.Fprintln(os.Stderr, sep)
+	fmt.Fprintln(os.Stderr, successColor("  ✓ All tasks completed successfully!"))
+	fmt.Fprintf(os.Stderr, "  Iterations: %d\n", iterations)
+	fmt.Fprintf(os.Stderr, "  Duration:   %s (%ds)\n", logging.FormatDuration(durationSecs), durationSecs)
+	fmt.Fprintln(os.Stderr, sep)
 }
 
 // PrintEscalationBanner displays the escalation banner.
@@ -88,12 +89,12 @@ func PrintCompletionBanner(iterations int, durationSecs int) {
 //	═══════════════════════════════════════════════════
 func PrintEscalationBanner(feedback string) {
 	sep := errorColor("═══════════════════════════════════════════════════")
-	fmt.Println(sep)
-	fmt.Println(errorColor("  ✗ ESCALATION REQUIRED"))
-	fmt.Println(sep)
-	fmt.Println("  Reason:")
-	fmt.Printf("  %s\n", feedback)
-	fmt.Println(sep)
+	fmt.Fprintln(os.Stderr, sep)
+	fmt.Fprintln(os.Stderr, errorColor("  ✗ ESCALATION REQUIRED"))
+	fmt.Fprintln(os.Stderr, sep)
+	fmt.Fprintln(os.Stderr, "  Reason:")
+	fmt.Fprintf(os.Stderr, "  %s\n", feedback)
+	fmt.Fprintln(os.Stderr, sep)
 }
 
 // PrintBlockedBanner displays the blocked banner with task list.
@@ -112,16 +113,16 @@ func PrintEscalationBanner(feedback string) {
 //	═══════════════════════════════════════════════════
 func PrintBlockedBanner(blockedTasks []string) {
 	sep := warnColor("═══════════════════════════════════════════════════")
-	fmt.Println(sep)
-	fmt.Println(warnColor("  ⚠ ALL TASKS BLOCKED"))
-	fmt.Println(sep)
+	fmt.Fprintln(os.Stderr, sep)
+	fmt.Fprintln(os.Stderr, warnColor("  ⚠ ALL TASKS BLOCKED"))
+	fmt.Fprintln(os.Stderr, sep)
 	if len(blockedTasks) > 0 {
-		fmt.Println("  Blocked tasks:")
+		fmt.Fprintln(os.Stderr, "  Blocked tasks:")
 		for _, task := range blockedTasks {
-			fmt.Printf("    - %s\n", task)
+			fmt.Fprintf(os.Stderr, "    - %s\n", task)
 		}
 	}
-	fmt.Println(sep)
+	fmt.Fprintln(os.Stderr, sep)
 }
 
 // PrintMaxIterationsBanner displays when iteration limit is reached.
@@ -137,9 +138,9 @@ func PrintBlockedBanner(blockedTasks []string) {
 //	═══════════════════════════════════════════════════
 func PrintMaxIterationsBanner(iterations int, maxIterations int) {
 	sep := warnColor("═══════════════════════════════════════════════════")
-	fmt.Println(sep)
-	fmt.Printf(warnColor("  ⚠ Max iterations reached (%d/%d)\n"), iterations, maxIterations)
-	fmt.Println(sep)
+	fmt.Fprintln(os.Stderr, sep)
+	fmt.Fprintf(os.Stderr, warnColor("  ⚠ Max iterations reached (%d/%d)\n"), iterations, maxIterations)
+	fmt.Fprintln(os.Stderr, sep)
 }
 
 // PrintInadmissibleBanner displays when inadmissible threshold is exceeded.
@@ -155,9 +156,9 @@ func PrintMaxIterationsBanner(iterations int, maxIterations int) {
 //	═══════════════════════════════════════════════════
 func PrintInadmissibleBanner(count int, max int) {
 	sep := errorColor("═══════════════════════════════════════════════════")
-	fmt.Println(sep)
-	fmt.Printf(errorColor("  ✗ INADMISSIBLE threshold exceeded (%d/%d)\n"), count, max)
-	fmt.Println(sep)
+	fmt.Fprintln(os.Stderr, sep)
+	fmt.Fprintf(os.Stderr, errorColor("  ✗ INADMISSIBLE threshold exceeded (%d/%d)\n"), count, max)
+	fmt.Fprintln(os.Stderr, sep)
 }
 
 // PrintInterruptedBanner displays when session is interrupted.
@@ -176,12 +177,12 @@ func PrintInadmissibleBanner(count int, max int) {
 //	═══════════════════════════════════════════════════
 func PrintInterruptedBanner(iteration int, phase string) {
 	sep := warnColor("═══════════════════════════════════════════════════")
-	fmt.Println(sep)
-	fmt.Println(warnColor("  ⚠ Session interrupted"))
-	fmt.Printf("  Iteration: %d\n", iteration)
-	fmt.Printf("  Phase:     %s\n", phase)
-	fmt.Println("  Use --resume to continue from this point")
-	fmt.Println(sep)
+	fmt.Fprintln(os.Stderr, sep)
+	fmt.Fprintln(os.Stderr, warnColor("  ⚠ Session interrupted"))
+	fmt.Fprintf(os.Stderr, "  Iteration: %d\n", iteration)
+	fmt.Fprintf(os.Stderr, "  Phase:     %s\n", phase)
+	fmt.Fprintln(os.Stderr, "  Use --resume to continue from this point")
+	fmt.Fprintln(os.Stderr, sep)
 }
 
 // StatusInfo contains all fields for displaying session status.
@@ -223,40 +224,40 @@ type StatusInfo struct {
 //	──────────────────────────────────────────────────
 func PrintStatusBanner(info StatusInfo) {
 	sep := strings.Repeat("─", 50)
-	fmt.Println(sep)
-	fmt.Printf("  Session:    %s\n", info.SessionID)
-	fmt.Printf("  Status:     %s\n", info.Status)
+	fmt.Fprintln(os.Stderr, sep)
+	fmt.Fprintf(os.Stderr, "  Session:    %s\n", info.SessionID)
+	fmt.Fprintf(os.Stderr, "  Status:     %s\n", info.Status)
 	if info.MaxIterations > 0 {
-		fmt.Printf("  Iteration:  %d/%d\n", info.Iteration, info.MaxIterations)
+		fmt.Fprintf(os.Stderr, "  Iteration:  %d/%d\n", info.Iteration, info.MaxIterations)
 	} else {
-		fmt.Printf("  Iteration:  %d\n", info.Iteration)
+		fmt.Fprintf(os.Stderr, "  Iteration:  %d\n", info.Iteration)
 	}
-	fmt.Printf("  Phase:      %s\n", info.Phase)
-	fmt.Printf("  Verdict:    %s\n", info.Verdict)
+	fmt.Fprintf(os.Stderr, "  Phase:      %s\n", info.Phase)
+	fmt.Fprintf(os.Stderr, "  Verdict:    %s\n", info.Verdict)
 	if info.AICli != "" {
-		fmt.Printf("  AI:         %s (impl: %s, val: %s)\n", info.AICli, info.ImplModel, info.ValModel)
+		fmt.Fprintf(os.Stderr, "  AI:         %s (impl: %s, val: %s)\n", info.AICli, info.ImplModel, info.ValModel)
 	}
 	if info.CrossValEnabled {
-		fmt.Printf("  Cross-val:  %s / %s\n", info.CrossAI, info.CrossModel)
+		fmt.Fprintf(os.Stderr, "  Cross-val:  %s / %s\n", info.CrossAI, info.CrossModel)
 	}
 	if info.InadmissibleCount > 0 || info.MaxInadmissible > 0 {
-		fmt.Printf("  Inadmiss.:  %d/%d\n", info.InadmissibleCount, info.MaxInadmissible)
+		fmt.Fprintf(os.Stderr, "  Inadmiss.:  %d/%d\n", info.InadmissibleCount, info.MaxInadmissible)
 	}
 	if info.StartedAt != "" {
-		fmt.Printf("  Started:    %s\n", info.StartedAt)
+		fmt.Fprintf(os.Stderr, "  Started:    %s\n", info.StartedAt)
 	}
 	if info.LastUpdated != "" {
-		fmt.Printf("  Updated:    %s\n", info.LastUpdated)
+		fmt.Fprintf(os.Stderr, "  Updated:    %s\n", info.LastUpdated)
 	}
 	if info.RetryAttempt > 0 {
-		fmt.Printf("  Retry:      attempt %d (delay %ds)\n", info.RetryAttempt, info.RetryDelay)
+		fmt.Fprintf(os.Stderr, "  Retry:      attempt %d (delay %ds)\n", info.RetryAttempt, info.RetryDelay)
 	}
 	if info.LastFeedback != "" {
 		feedback := info.LastFeedback
 		if len(feedback) > 80 {
 			feedback = feedback[:80] + "..."
 		}
-		fmt.Printf("  Feedback:   %s\n", feedback)
+		fmt.Fprintf(os.Stderr, "  Feedback:   %s\n", feedback)
 	}
-	fmt.Println(sep)
+	fmt.Fprintln(os.Stderr, sep)
 }

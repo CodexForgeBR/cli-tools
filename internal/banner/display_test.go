@@ -11,20 +11,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// captureStdout captures stdout output during function execution
-func captureStdout(t *testing.T, fn func()) string {
+// captureStderr captures stderr output during function execution
+func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 
-	// Save original stdout
-	old := os.Stdout
-	defer func() { os.Stdout = old }()
+	// Save original stderr
+	old := os.Stderr
+	defer func() { os.Stderr = old }()
 
 	// Create pipe
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
 
-	// Replace stdout
-	os.Stdout = w
+	// Replace stderr
+	os.Stderr = w
 
 	// Create channel for output
 	outC := make(chan string)
@@ -37,9 +37,9 @@ func captureStdout(t *testing.T, fn func()) string {
 	// Execute function
 	fn()
 
-	// Close writer and restore stdout
+	// Close writer and restore stderr
 	w.Close()
-	os.Stdout = old
+	os.Stderr = old
 
 	// Get captured output
 	output := <-outC
@@ -102,7 +102,7 @@ func TestPrintStartupBanner(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			output := captureStdout(t, func() {
+			output := captureStderr(t, func() {
 				PrintStartupBanner(tt.sessionID, tt.ai, tt.model, tt.tasksFile)
 			})
 
@@ -120,7 +120,7 @@ func TestPrintStartupBanner(t *testing.T) {
 
 // TestPrintStartupBanner_ProjectName verifies project name appears prominently
 func TestPrintStartupBanner_ProjectName(t *testing.T) {
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		PrintStartupBanner("test-session", "claude", "opus", "tasks.md")
 	})
 
@@ -179,7 +179,7 @@ func TestPrintCompletionBanner(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			output := captureStdout(t, func() {
+			output := captureStderr(t, func() {
 				PrintCompletionBanner(tt.iterations, tt.durationSecs)
 			})
 
@@ -226,7 +226,7 @@ func TestPrintEscalationBanner(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			output := captureStdout(t, func() {
+			output := captureStderr(t, func() {
 				PrintEscalationBanner(tt.feedback)
 			})
 
@@ -246,7 +246,7 @@ func TestPrintEscalationBanner(t *testing.T) {
 
 // TestPrintEscalationBanner_EmptyFeedback verifies handling of empty feedback
 func TestPrintEscalationBanner_EmptyFeedback(t *testing.T) {
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		PrintEscalationBanner("")
 	})
 
@@ -298,7 +298,7 @@ func TestPrintBlockedBanner(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			output := captureStdout(t, func() {
+			output := captureStderr(t, func() {
 				PrintBlockedBanner(tt.blockedTasks)
 			})
 
@@ -317,7 +317,7 @@ func TestPrintBlockedBanner(t *testing.T) {
 
 // TestPrintBlockedBanner_EmptyList verifies handling of empty blocked tasks list
 func TestPrintBlockedBanner_EmptyList(t *testing.T) {
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		PrintBlockedBanner([]string{})
 	})
 
@@ -331,7 +331,7 @@ func TestPrintBlockedBanner_EmptyList(t *testing.T) {
 
 // TestPrintBlockedBanner_NilList verifies handling of nil blocked tasks list
 func TestPrintBlockedBanner_NilList(t *testing.T) {
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		PrintBlockedBanner(nil)
 	})
 
@@ -386,7 +386,7 @@ func TestPrintMaxIterationsBanner(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			output := captureStdout(t, func() {
+			output := captureStderr(t, func() {
 				PrintMaxIterationsBanner(tt.iterations, tt.maxIterations)
 			})
 
@@ -460,7 +460,7 @@ func TestPrintInadmissibleBanner(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			output := captureStdout(t, func() {
+			output := captureStderr(t, func() {
 				PrintInadmissibleBanner(tt.count, tt.max)
 			})
 
@@ -533,7 +533,7 @@ func TestPrintInterruptedBanner(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			output := captureStdout(t, func() {
+			output := captureStderr(t, func() {
 				PrintInterruptedBanner(tt.iteration, tt.phase)
 			})
 
@@ -751,7 +751,7 @@ func TestPrintStatusBanner(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			output := captureStdout(t, func() {
+			output := captureStderr(t, func() {
 				PrintStatusBanner(tt.info)
 			})
 
@@ -771,7 +771,7 @@ func TestPrintStatusBanner_RequiredFields(t *testing.T) {
 		Iteration: 99,
 	}
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		PrintStatusBanner(info)
 	})
 
@@ -848,7 +848,7 @@ func TestBannerOutput_NotEmpty(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			output := captureStdout(t, tt.fn)
+			output := captureStderr(t, tt.fn)
 			assert.NotEmpty(t, output, "%s should produce output", tt.name)
 			assert.Greater(t, len(output), 10, "%s should produce substantial output", tt.name)
 		})

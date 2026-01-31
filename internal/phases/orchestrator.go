@@ -284,6 +284,21 @@ func (o *Orchestrator) phaseResumeCheck() int {
 			return exitcode.Error
 		}
 
+		// Restore config from saved state so the orchestrator uses the same
+		// settings as the original session. This must happen BEFORE
+		// ResumeFromState so ValidateState has the correct tasks file path.
+		// CLI flag overrides are applied by the precedence chain in main.go
+		// before Run() is called, so any explicit overrides take effect on
+		// top of these restored values.
+		o.Config.AIProvider = existing.AICli
+		o.Config.ImplModel = existing.ImplModel
+		o.Config.ValModel = existing.ValModel
+		o.Config.MaxIterations = existing.MaxIterations
+		o.Config.MaxInadmissible = existing.MaxInadmissible
+		if o.Config.TasksFile == "" {
+			o.Config.TasksFile = existing.TasksFile
+		}
+
 		// Resume from existing state
 		err = state.ResumeFromState(existing, o.Config.TasksFile, o.Config.ResumeForce)
 		if err != nil {
@@ -293,17 +308,6 @@ func (o *Orchestrator) phaseResumeCheck() int {
 
 		// Replace the session with the resumed one
 		o.session = existing
-
-		// Restore config from saved state so the orchestrator uses the same
-		// settings as the original session. CLI flag overrides are applied by
-		// the precedence chain in main.go before Run() is called, so any
-		// explicit overrides take effect on top of these restored values.
-		o.Config.AIProvider = existing.AICli
-		o.Config.ImplModel = existing.ImplModel
-		o.Config.ValModel = existing.ValModel
-		o.Config.MaxIterations = existing.MaxIterations
-		o.Config.MaxInadmissible = existing.MaxInadmissible
-		o.Config.TasksFile = existing.TasksFile
 		o.Config.EnableLearnings = existing.Learnings.Enabled == 1
 		o.Config.LearningsFile = existing.Learnings.File
 		o.Config.CrossValidate = existing.CrossValidation.Enabled == 1

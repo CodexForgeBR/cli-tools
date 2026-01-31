@@ -85,24 +85,24 @@ func TestFormatDuration(t *testing.T) {
 // Log output tests
 // ---------------------------------------------------------------------------
 
-func TestInfoWritesToStdout(t *testing.T) {
-	out := captureStdout(t, func() {
+func TestInfoWritesToStderr(t *testing.T) {
+	out := captureStderr(t, func() {
 		logging.Info("test message")
 	})
 	assert.Contains(t, out, "[INFO]")
 	assert.Contains(t, out, "test message")
 }
 
-func TestSuccessWritesToStdout(t *testing.T) {
-	out := captureStdout(t, func() {
+func TestSuccessWritesToStderr(t *testing.T) {
+	out := captureStderr(t, func() {
 		logging.Success("done")
 	})
 	assert.Contains(t, out, "[SUCCESS]")
 	assert.Contains(t, out, "done")
 }
 
-func TestWarnWritesToStdout(t *testing.T) {
-	out := captureStdout(t, func() {
+func TestWarnWritesToStderr(t *testing.T) {
+	out := captureStderr(t, func() {
 		logging.Warn("caution")
 	})
 	assert.Contains(t, out, "[WARN]")
@@ -117,8 +117,8 @@ func TestErrorWritesToStderr(t *testing.T) {
 	assert.Contains(t, out, "failure")
 }
 
-func TestPhaseWritesToStdout(t *testing.T) {
-	out := captureStdout(t, func() {
+func TestPhaseWritesToStderr(t *testing.T) {
+	out := captureStderr(t, func() {
 		logging.Phase("implementation")
 	})
 	assert.Contains(t, out, "[PHASE]")
@@ -129,7 +129,7 @@ func TestPhaseWritesToStdout(t *testing.T) {
 
 func TestDebugSuppressedWhenNotVerbose(t *testing.T) {
 	logging.SetVerbose(false)
-	out := captureStdout(t, func() {
+	out := captureStderr(t, func() {
 		logging.Debug("hidden")
 	})
 	assert.Empty(t, out)
@@ -139,7 +139,7 @@ func TestDebugShownWhenVerbose(t *testing.T) {
 	logging.SetVerbose(true)
 	defer logging.SetVerbose(false)
 
-	out := captureStdout(t, func() {
+	out := captureStderr(t, func() {
 		logging.Debug("visible")
 	})
 	assert.Contains(t, out, "[DEBUG]")
