@@ -19,18 +19,23 @@ func init() {
 }
 
 // captureStderr captures stderr output produced by fn.
+// Uses deferred cleanup so os.Stderr is always restored even if fn panics.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 
 	old := os.Stderr
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
+	defer func() {
+		os.Stderr = old
+		r.Close()
+	}()
 	os.Stderr = w
 
 	fn()
 
+	// Close the write end so io.Copy sees EOF on the read end.
 	w.Close()
-	os.Stderr = old
 
 	var buf bytes.Buffer
 	_, err = io.Copy(&buf, r)
