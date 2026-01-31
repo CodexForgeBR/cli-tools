@@ -31,9 +31,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: golangci/golangci-lint-action@v9
+      - uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.62
+          version: v1.62.2
+          skip-cache: true
 
   build:
     runs-on: ubuntu-latest
