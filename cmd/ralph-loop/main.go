@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -74,9 +75,6 @@ func buildCLIOverrides(cmd *cobra.Command, cfg *config.Config) map[string]string
 		"final-plan-validation-model": {"FINAL_PLAN_MODEL", cfg.FinalPlanModel},
 		"tasks-validation-ai":         {"TASKS_VAL_AI", cfg.TasksValAI},
 		"tasks-validation-model":      {"TASKS_VAL_MODEL", cfg.TasksValModel},
-		"tasks-file":                  {"TASKS_FILE", cfg.TasksFile},
-		"original-plan-file":          {"ORIGINAL_PLAN_FILE", cfg.OriginalPlanFile},
-		"github-issue":                {"GITHUB_ISSUE", cfg.GithubIssue},
 		"learnings-file":              {"LEARNINGS_FILE", cfg.LearningsFile},
 		"notify-webhook":              {"NOTIFY_WEBHOOK", cfg.NotifyWebhook},
 		"notify-channel":              {"NOTIFY_CHANNEL", cfg.NotifyChannel},
@@ -137,7 +135,10 @@ func runOrchestrator(cmd *cobra.Command, cfg *config.Config) error {
 	// Load config with full precedence chain
 	// CLI flags are already bound to cfg, now load file-based configs
 	globalConfigPath := ""
-	projectConfigPath := ""
+	if home, err := os.UserHomeDir(); err == nil {
+		globalConfigPath = filepath.Join(home, ".config", "ralph-loop", "config")
+	}
+	projectConfigPath := filepath.Join(".ralph-loop", "config")
 	explicitConfigPath := cfg.ConfigFile
 
 	// Build CLI overrides map using Changed() for accurate detection
@@ -150,6 +151,9 @@ func runOrchestrator(cmd *cobra.Command, cfg *config.Config) error {
 	}
 
 	// Merge CLI-only flags (not in config files)
+	finalCfg.TasksFile = cfg.TasksFile
+	finalCfg.OriginalPlanFile = cfg.OriginalPlanFile
+	finalCfg.GithubIssue = cfg.GithubIssue
 	finalCfg.ConfigFile = cfg.ConfigFile
 	finalCfg.Resume = cfg.Resume
 	finalCfg.ResumeForce = cfg.ResumeForce

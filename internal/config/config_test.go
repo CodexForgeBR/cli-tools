@@ -65,8 +65,8 @@ func TestNewDefaultConfigValues(t *testing.T) {
 	assert.Empty(t, cfg.StartAt)
 }
 
-func TestWhitelistedVarsContains24Entries(t *testing.T) {
-	assert.Len(t, config.WhitelistedVars, 24)
+func TestWhitelistedVarsContains21Entries(t *testing.T) {
+	assert.Len(t, config.WhitelistedVars, 21)
 }
 
 func TestWhitelistedVarsContainsAllExpectedNames(t *testing.T) {
@@ -86,9 +86,6 @@ func TestWhitelistedVarsContainsAllExpectedNames(t *testing.T) {
 		"MAX_CLAUDE_RETRY",
 		"MAX_TURNS",
 		"INACTIVITY_TIMEOUT",
-		"TASKS_FILE",
-		"ORIGINAL_PLAN_FILE",
-		"GITHUB_ISSUE",
 		"LEARNINGS_FILE",
 		"ENABLE_LEARNINGS",
 		"VERBOSE",
@@ -100,6 +97,14 @@ func TestWhitelistedVarsContainsAllExpectedNames(t *testing.T) {
 	// Convert array to slice for comparison.
 	vars := config.WhitelistedVars[:]
 	assert.ElementsMatch(t, expected, vars)
+}
+
+func TestWhitelistedVarsExcludesSessionVars(t *testing.T) {
+	excluded := []string{"TASKS_FILE", "ORIGINAL_PLAN_FILE", "GITHUB_ISSUE"}
+	vars := config.WhitelistedVars[:]
+	for _, key := range excluded {
+		assert.NotContains(t, vars, key, "%s should not be in WhitelistedVars", key)
+	}
 }
 
 func TestWhitelistedVarsHasNoDuplicates(t *testing.T) {
