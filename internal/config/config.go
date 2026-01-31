@@ -7,8 +7,11 @@ package config
 
 // WhitelistedVars lists every configuration variable name that may appear in
 // config files. Variables not in this list are silently ignored during loading.
-// The list contains exactly 24 entries matching the data model specification.
-var WhitelistedVars = [24]string{
+// The list contains exactly 21 entries matching the data model specification.
+//
+// Note: TASKS_FILE, ORIGINAL_PLAN_FILE, and GITHUB_ISSUE are session-specific
+// CLI-only flags and are intentionally excluded from config file loading.
+var WhitelistedVars = [21]string{
 	"AI_CLI",
 	"IMPL_MODEL",
 	"VAL_MODEL",
@@ -24,9 +27,6 @@ var WhitelistedVars = [24]string{
 	"MAX_CLAUDE_RETRY",
 	"MAX_TURNS",
 	"INACTIVITY_TIMEOUT",
-	"TASKS_FILE",
-	"ORIGINAL_PLAN_FILE",
-	"GITHUB_ISSUE",
 	"LEARNINGS_FILE",
 	"ENABLE_LEARNINGS",
 	"VERBOSE",
@@ -66,11 +66,8 @@ type Config struct {
 	InactivityTimeout int
 
 	// File paths.
-	TasksFile        string
-	OriginalPlanFile string
-	GithubIssue      string
-	LearningsFile    string
-	EnableLearnings  bool
+	LearningsFile   string
+	EnableLearnings bool
 
 	// Runtime flags.
 	Verbose bool
@@ -81,13 +78,16 @@ type Config struct {
 	NotifyChatID  string
 
 	// CLI-only flags (not loaded from config files).
-	ConfigFile  string
-	Resume      bool
-	ResumeForce bool
-	Clean       bool
-	Status      bool
-	Cancel      bool
-	StartAt     string
+	TasksFile        string
+	OriginalPlanFile string
+	GithubIssue      string
+	ConfigFile       string
+	Resume           bool
+	ResumeForce      bool
+	Clean            bool
+	Status           bool
+	Cancel           bool
+	StartAt          string
 }
 
 // NewDefaultConfig returns a Config populated with all built-in default values.

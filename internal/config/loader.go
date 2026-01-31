@@ -174,12 +174,6 @@ func ApplyMapToConfig(cfg *Config, m map[string]string) {
 			if v, err := strconv.Atoi(value); err == nil {
 				cfg.InactivityTimeout = v
 			}
-		case "TASKS_FILE":
-			cfg.TasksFile = value
-		case "ORIGINAL_PLAN_FILE":
-			cfg.OriginalPlanFile = value
-		case "GITHUB_ISSUE":
-			cfg.GithubIssue = value
 		case "LEARNINGS_FILE":
 			cfg.LearningsFile = value
 		case "ENABLE_LEARNINGS":

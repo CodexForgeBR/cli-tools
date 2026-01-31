@@ -271,22 +271,19 @@ func TestLoadWithPrecedenceInvalidProjectPath(t *testing.T) {
 func TestApplyMapToConfigSetsAllStringFields(t *testing.T) {
 	cfg := config.NewDefaultConfig()
 	m := map[string]string{
-		"AI_CLI":             "codex",
-		"IMPL_MODEL":         "gpt-4",
-		"VAL_MODEL":          "gpt-3.5",
-		"CROSS_AI":           "claude",
-		"CROSS_MODEL":        "sonnet",
-		"FINAL_PLAN_AI":      "codex",
-		"FINAL_PLAN_MODEL":   "gpt-4",
-		"TASKS_VAL_AI":       "claude",
-		"TASKS_VAL_MODEL":    "opus",
-		"TASKS_FILE":         "/tmp/tasks.md",
-		"ORIGINAL_PLAN_FILE": "/tmp/plan.md",
-		"GITHUB_ISSUE":       "https://github.com/org/repo/issues/1",
-		"LEARNINGS_FILE":     "/tmp/learnings.md",
-		"NOTIFY_WEBHOOK":     "https://example.com/hook",
-		"NOTIFY_CHANNEL":     "slack",
-		"NOTIFY_CHAT_ID":     "99999",
+		"AI_CLI":           "codex",
+		"IMPL_MODEL":       "gpt-4",
+		"VAL_MODEL":        "gpt-3.5",
+		"CROSS_AI":         "claude",
+		"CROSS_MODEL":      "sonnet",
+		"FINAL_PLAN_AI":    "codex",
+		"FINAL_PLAN_MODEL": "gpt-4",
+		"TASKS_VAL_AI":     "claude",
+		"TASKS_VAL_MODEL":  "opus",
+		"LEARNINGS_FILE":   "/tmp/learnings.md",
+		"NOTIFY_WEBHOOK":   "https://example.com/hook",
+		"NOTIFY_CHANNEL":   "slack",
+		"NOTIFY_CHAT_ID":   "99999",
 	}
 
 	config.ApplyMapToConfig(cfg, m)
@@ -300,13 +297,25 @@ func TestApplyMapToConfigSetsAllStringFields(t *testing.T) {
 	assert.Equal(t, "gpt-4", cfg.FinalPlanModel)
 	assert.Equal(t, "claude", cfg.TasksValAI)
 	assert.Equal(t, "opus", cfg.TasksValModel)
-	assert.Equal(t, "/tmp/tasks.md", cfg.TasksFile)
-	assert.Equal(t, "/tmp/plan.md", cfg.OriginalPlanFile)
-	assert.Equal(t, "https://github.com/org/repo/issues/1", cfg.GithubIssue)
 	assert.Equal(t, "/tmp/learnings.md", cfg.LearningsFile)
 	assert.Equal(t, "https://example.com/hook", cfg.NotifyWebhook)
 	assert.Equal(t, "slack", cfg.NotifyChannel)
 	assert.Equal(t, "99999", cfg.NotifyChatID)
+}
+
+func TestApplyMapToConfigIgnoresSessionVars(t *testing.T) {
+	cfg := config.NewDefaultConfig()
+	m := map[string]string{
+		"TASKS_FILE":         "/tmp/tasks.md",
+		"ORIGINAL_PLAN_FILE": "/tmp/plan.md",
+		"GITHUB_ISSUE":       "https://github.com/org/repo/issues/1",
+	}
+
+	config.ApplyMapToConfig(cfg, m)
+
+	assert.Empty(t, cfg.TasksFile, "TASKS_FILE should be ignored by ApplyMapToConfig")
+	assert.Empty(t, cfg.OriginalPlanFile, "ORIGINAL_PLAN_FILE should be ignored by ApplyMapToConfig")
+	assert.Empty(t, cfg.GithubIssue, "GITHUB_ISSUE should be ignored by ApplyMapToConfig")
 }
 
 func TestApplyMapToConfigSetsIntegerFields(t *testing.T) {
@@ -427,8 +436,6 @@ CROSS_VALIDATE=true
 AI_CLI=claude
 IMPL_MODEL=sonnet
 MAX_ITERATIONS=30
-TASKS_FILE=/project/tasks.md
-ORIGINAL_PLAN_FILE=/project/plan.md
 VERBOSE=false
 `)
 
@@ -469,8 +476,6 @@ TASKS_VAL_MODEL=opus
 	// From project config
 	assert.Equal(t, "claude", cfg.AIProvider, "Project should override global for AIProvider")
 	assert.Equal(t, "sonnet", cfg.ImplModel, "Project should override global for ImplModel")
-	assert.Equal(t, "/project/tasks.md", cfg.TasksFile, "Project config should set TasksFile")
-	assert.Equal(t, "/project/plan.md", cfg.OriginalPlanFile, "Project config should set OriginalPlanFile")
 
 	// From global config (not overridden)
 	assert.Equal(t, 8, cfg.MaxInadmissible, "Global config should set MaxInadmissible")
@@ -510,9 +515,6 @@ INACTIVITY_TIMEOUT=3600
 `)
 
 	projectPath := writeFile(t, dir, "project.config", `
-TASKS_FILE=/project/tasks.md
-ORIGINAL_PLAN_FILE=/project/original.md
-GITHUB_ISSUE=https://github.com/owner/repo/issues/42
 LEARNINGS_FILE=/project/learnings.md
 NOTIFY_WEBHOOK=http://project.example.com/webhook
 NOTIFY_CHANNEL=discord
@@ -547,9 +549,6 @@ VERBOSE=true
 	assert.Equal(t, 3600, cfg.InactivityTimeout)
 
 	// Verify all string fields from project
-	assert.Equal(t, "/project/tasks.md", cfg.TasksFile)
-	assert.Equal(t, "/project/original.md", cfg.OriginalPlanFile)
-	assert.Equal(t, "https://github.com/owner/repo/issues/42", cfg.GithubIssue)
 	assert.Equal(t, "/project/learnings.md", cfg.LearningsFile)
 	assert.Equal(t, "http://project.example.com/webhook", cfg.NotifyWebhook)
 	assert.Equal(t, "discord", cfg.NotifyChannel)
