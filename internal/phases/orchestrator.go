@@ -38,6 +38,7 @@ type Orchestrator struct {
 	CommandChecker  CommandChecker
 	session         *state.SessionState
 	startTime       time.Time
+	resumed         bool
 }
 
 // NewOrchestrator creates a new orchestrator with the given config.
@@ -308,6 +309,7 @@ func (o *Orchestrator) phaseResumeCheck() int {
 
 		// Replace the session with the resumed one
 		o.session = existing
+		o.resumed = true
 		o.Config.EnableLearnings = existing.Learnings.Enabled == 1
 		o.Config.LearningsFile = existing.Learnings.File
 		o.Config.CrossValidate = existing.CrossValidation.Enabled == 1
@@ -325,6 +327,10 @@ func (o *Orchestrator) phaseResumeCheck() int {
 }
 
 func (o *Orchestrator) phaseValidateSetup() int {
+	if o.resumed {
+		return -1
+	}
+
 	logging.Phase("Validating setup")
 
 	// Check compliance
@@ -359,7 +365,7 @@ func (o *Orchestrator) phaseValidateSetup() int {
 }
 
 func (o *Orchestrator) phaseFetchIssue() {
-	if o.Config.GithubIssue == "" {
+	if o.resumed || o.Config.GithubIssue == "" {
 		return
 	}
 
@@ -393,6 +399,10 @@ func (o *Orchestrator) phaseFetchIssue() {
 }
 
 func (o *Orchestrator) phaseTasksValidation(ctx context.Context) int {
+	if o.resumed {
+		return -1
+	}
+
 	if o.Config.OriginalPlanFile == "" && o.Config.GithubIssue == "" {
 		return -1
 	}
@@ -430,7 +440,7 @@ func (o *Orchestrator) phaseTasksValidation(ctx context.Context) int {
 }
 
 func (o *Orchestrator) phaseScheduleWait(ctx context.Context) int {
-	if o.Config.StartAt == "" {
+	if o.resumed || o.Config.StartAt == "" {
 		return -1
 	}
 
