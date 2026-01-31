@@ -77,3 +77,8 @@ jobs:
           args: release --snapshot --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ralph-loop-binaries
+          path: dist/*
+          retention-days: 90
