@@ -10,6 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// contextKey is a custom type for context keys to satisfy staticcheck SA1029.
+type contextKey string
+
 // TestAIRunnerInterface verifies the AIRunner interface contract
 func TestAIRunnerInterface(t *testing.T) {
 	t.Run("interface can be satisfied by mock implementation", func(t *testing.T) {
@@ -58,7 +61,7 @@ func TestAIRunnerInterface(t *testing.T) {
 			},
 		}
 
-		ctx := context.WithValue(context.Background(), "testKey", "testValue")
+		ctx := context.WithValue(context.Background(), contextKey("testKey"), "testValue")
 		expectedPrompt := "test prompt with details"
 		expectedOutputPath := "/tmp/test-output.json"
 

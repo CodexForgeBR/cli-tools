@@ -29,7 +29,7 @@ func TestCheckAvailability_SingleTool(t *testing.T) {
 
 	t.Run("checks common system tools", func(t *testing.T) {
 		testCases := []struct {
-			tool      string
+			tool        string
 			shouldExist bool
 		}{
 			{"ls", true},
@@ -69,10 +69,10 @@ func TestCheckAvailability_MultipleTools(t *testing.T) {
 
 	t.Run("checks mix of installed and missing tools", func(t *testing.T) {
 		tools := []string{
-			"ls",                                    // exists
-			"cat",                                   // exists
-			"nonexistent-tool-abc",                 // doesn't exist
-			"another-missing-tool-xyz",             // doesn't exist
+			"ls",                       // exists
+			"cat",                      // exists
+			"nonexistent-tool-abc",     // doesn't exist
+			"another-missing-tool-xyz", // doesn't exist
 		}
 		result := CheckAvailability(tools...)
 

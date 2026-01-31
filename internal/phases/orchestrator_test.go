@@ -37,6 +37,17 @@ func (m *MockOrchestratorAIRunner) Run(ctx context.Context, prompt string, outpu
 	return nil
 }
 
+// alwaysAvailable returns a CommandChecker that reports all tools as available.
+// This allows orchestrator tests to bypass the real exec.LookPath check for the AI CLI tool,
+// which is not installed in CI environments.
+func alwaysAvailable(tools ...string) map[string]bool {
+	result := make(map[string]bool, len(tools))
+	for _, t := range tools {
+		result[t] = true
+	}
+	return result
+}
+
 // Helper function to create validation JSON output
 func makeOrchestratorValidationJSON(verdict string, feedback string) string {
 	data := map[string]interface{}{
@@ -68,6 +79,7 @@ func TestNewOrchestrator(t *testing.T) {
 	cfg.TasksFile = "tasks.md"
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 
 	assert.NotNil(t, orchestrator, "orchestrator should be created")
 	assert.NotNil(t, orchestrator.Config, "config should be set")
@@ -106,10 +118,10 @@ func TestOrchestrator_10PhaseOrdering(t *testing.T) {
 - [x] Task 2
 - [x] Task 3
 `
-				os.WriteFile(tasksFile, []byte(updatedTasks), 0644)
-				os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+				_ = os.WriteFile(tasksFile, []byte(updatedTasks), 0644)
+				_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			} else {
-				os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Keep going")), 0644)
+				_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Keep going")), 0644)
 			}
 			return nil
 		},
@@ -117,12 +129,13 @@ func TestOrchestrator_10PhaseOrdering(t *testing.T) {
 
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -156,19 +169,20 @@ func TestOrchestrator_MaxIterationsReached(t *testing.T) {
 	// Always return NEEDS_MORE_WORK so we hit max iterations
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Not done yet")), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Not done yet")), 0644)
 			return nil
 		},
 	}
 
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -205,6 +219,7 @@ func TestOrchestrator_AllTasksChecked(t *testing.T) {
 	implRunner := &MockOrchestratorAIRunner{}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -237,19 +252,20 @@ func TestOrchestrator_EscalationFromValidation(t *testing.T) {
 	// First iteration escalates
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("ESCALATE", "Need human review")), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("ESCALATE", "Need human review")), 0644)
 			return nil
 		},
 	}
 
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -285,19 +301,20 @@ func TestOrchestrator_BlockedTasks(t *testing.T) {
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
 			blockedJSON := makeOrchestratorValidationJSONWithBlocked("BLOCKED", "All blocked", []string{"Task 1", "Task 2", "Task 3"})
-			os.WriteFile(outputPath, []byte(blockedJSON), 0644)
+			_ = os.WriteFile(outputPath, []byte(blockedJSON), 0644)
 			return nil
 		},
 	}
 
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -329,19 +346,20 @@ func TestOrchestrator_InadmissibleThreshold(t *testing.T) {
 	// Always return INADMISSIBLE
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("INADMISSIBLE", "Invalid format")), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("INADMISSIBLE", "Invalid format")), 0644)
 			return nil
 		},
 	}
 
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -383,19 +401,20 @@ func TestOrchestrator_ContextCancellation(t *testing.T) {
 				cancel() // Cancel during first iteration
 				return ctx.Err()
 			}
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Continue")), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Continue")), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -428,8 +447,8 @@ func TestOrchestrator_CrossValidationFlow(t *testing.T) {
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
 			// Mark task as complete
-			os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
@@ -437,19 +456,20 @@ func TestOrchestrator_CrossValidationFlow(t *testing.T) {
 	// Cross validation confirms
 	crossRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
 
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -483,19 +503,20 @@ func TestOrchestrator_FirstIterationPrompt(t *testing.T) {
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
 			receivedPrompt = prompt
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -529,7 +550,7 @@ func TestOrchestrator_SubsequentIterationsPrompt(t *testing.T) {
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
 			prompts = append(prompts, prompt)
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
@@ -537,15 +558,16 @@ func TestOrchestrator_SubsequentIterationsPrompt(t *testing.T) {
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
 			if len(prompts) < 3 {
-				os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Continue")), 0644)
+				_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Continue")), 0644)
 			} else {
-				os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+				_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			}
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -586,12 +608,13 @@ func TestOrchestrator_ImplRunnerError(t *testing.T) {
 
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Continue")), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Continue")), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -624,7 +647,7 @@ func TestOrchestrator_ValidationRunnerError(t *testing.T) {
 
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
@@ -637,6 +660,7 @@ func TestOrchestrator_ValidationRunnerError(t *testing.T) {
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -668,6 +692,7 @@ func TestOrchestrator_NoAIRunners(t *testing.T) {
 	cfg.TasksValAI = ""
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	// Don't set any runners - they will be nil
 
@@ -705,20 +730,21 @@ func TestOrchestrator_StateDirectory(t *testing.T) {
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
 			// Mark task as complete
-			os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
 
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -787,6 +813,7 @@ func TestOrchestrator_StatusFlag(t *testing.T) {
 	require.NoError(t, state.SaveState(savedState, stateDir))
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = stateDir
 
 	ctx := context.Background()
@@ -821,6 +848,7 @@ func TestOrchestrator_StatusFlagNoState(t *testing.T) {
 	cfg.TasksValAI = ""
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 
 	ctx := context.Background()
@@ -883,20 +911,21 @@ func TestOrchestrator_CleanFlag(t *testing.T) {
 	// Mock runners
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
 
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = stateDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -958,6 +987,7 @@ func TestOrchestrator_CancelFlag(t *testing.T) {
 	require.NoError(t, state.SaveState(savedState, stateDir))
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = stateDir
 
 	ctx := context.Background()
@@ -991,6 +1021,7 @@ func TestOrchestrator_CancelFlagNoState(t *testing.T) {
 	cfg.TasksValAI = ""
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 
 	ctx := context.Background()
@@ -1047,6 +1078,7 @@ func TestOrchestrator_CleanAndStatusIndependent(t *testing.T) {
 	require.NoError(t, state.SaveState(savedState, stateDir))
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = stateDir
 
 	ctx := context.Background()
@@ -1114,19 +1146,20 @@ func TestOrchestrator_ResumeRestoresConfig(t *testing.T) {
 	// Validation completes immediately
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = stateDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -1175,26 +1208,27 @@ func TestOrchestrator_TasksValidationWithPlan(t *testing.T) {
 	tasksValJSON := `{"RALPH_TASKS_VALIDATION":{"verdict":"VALID","feedback":"Tasks are valid"}}`
 	tasksValRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte(tasksValJSON), 0644)
+			_ = os.WriteFile(outputPath, []byte(tasksValJSON), 0644)
 			return nil
 		},
 	}
 
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -1228,6 +1262,7 @@ func TestOrchestrator_PhaseInitStateDirError(t *testing.T) {
 	cfg.TasksValAI = ""
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = stateDir
 
 	ctx := context.Background()
@@ -1248,6 +1283,7 @@ func TestOrchestrator_PhaseCommandChecksNotAvailable(t *testing.T) {
 	cfg.TasksValAI = ""
 
 	orchestrator := NewOrchestrator(cfg)
+	// Intentionally NOT setting CommandChecker so it uses the real exec.LookPath
 	orchestrator.StateDir = tmpDir
 
 	ctx := context.Background()
@@ -1271,6 +1307,7 @@ func TestOrchestrator_PhaseFindTasksDiscoverError(t *testing.T) {
 	cfg.TasksValAI = ""
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 
 	ctx := context.Background()
@@ -1303,6 +1340,7 @@ func TestOrchestrator_PhaseFindTasksHashError(t *testing.T) {
 	cfg.TasksValAI = ""
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 
 	ctx := context.Background()
@@ -1328,19 +1366,20 @@ func TestOrchestrator_PhaseFetchIssueSkip(t *testing.T) {
 
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -1368,19 +1407,20 @@ func TestOrchestrator_PhaseFetchIssueParseError(t *testing.T) {
 
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -1409,19 +1449,20 @@ func TestOrchestrator_PhaseFetchIssueFetchError(t *testing.T) {
 
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -1452,19 +1493,20 @@ func TestOrchestrator_PhaseTasksValidationNilRunner(t *testing.T) {
 
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -1497,7 +1539,7 @@ func TestOrchestrator_PhaseTasksValidationExitAction(t *testing.T) {
 	tasksValRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
 			tasksValJSON := `{"RALPH_TASKS_VALIDATION":{"verdict":"INVALID","feedback":"Tasks do not match spec"}}`
-			os.WriteFile(outputPath, []byte(tasksValJSON), 0644)
+			_ = os.WriteFile(outputPath, []byte(tasksValJSON), 0644)
 			return nil
 		},
 	}
@@ -1506,6 +1548,7 @@ func TestOrchestrator_PhaseTasksValidationExitAction(t *testing.T) {
 	valRunner := &MockOrchestratorAIRunner{}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -1563,6 +1606,7 @@ func TestOrchestrator_PhaseTasksValidationDefaultAction(t *testing.T) {
 	valRunner := &MockOrchestratorAIRunner{}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -1597,26 +1641,27 @@ func TestOrchestrator_PhaseTasksValidationWithIssue(t *testing.T) {
 	tasksValRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
 			tasksValJSON := `{"RALPH_TASKS_VALIDATION":{"verdict":"VALID","feedback":"Tasks match spec"}}`
-			os.WriteFile(outputPath, []byte(tasksValJSON), 0644)
+			_ = os.WriteFile(outputPath, []byte(tasksValJSON), 0644)
 			return nil
 		},
 	}
 
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -1648,19 +1693,20 @@ func TestOrchestrator_PhaseScheduleWaitSkip(t *testing.T) {
 
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -1687,6 +1733,7 @@ func TestOrchestrator_PhaseScheduleWaitParseError(t *testing.T) {
 	cfg.TasksValAI = ""
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 
 	ctx := context.Background()
@@ -1712,6 +1759,7 @@ func TestOrchestrator_PhaseScheduleWaitContextCancel(t *testing.T) {
 	cfg.TasksValAI = ""
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1742,19 +1790,20 @@ func TestOrchestrator_PhaseScheduleWaitPastTime(t *testing.T) {
 
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -1808,19 +1857,20 @@ func TestOrchestrator_IterationLoopBase64DecodeError(t *testing.T) {
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
 			receivedPrompt = prompt
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = stateDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -1852,7 +1902,7 @@ func TestOrchestrator_ValidationCancellation(t *testing.T) {
 
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
@@ -1870,6 +1920,7 @@ func TestOrchestrator_ValidationCancellation(t *testing.T) {
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -1898,7 +1949,7 @@ func TestOrchestrator_PostValidationContinue(t *testing.T) {
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
 			implCallCount++
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
@@ -1908,8 +1959,8 @@ func TestOrchestrator_PostValidationContinue(t *testing.T) {
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
 			valCallCount++
 			// Always mark tasks as complete so validation says COMPLETE
-			os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
@@ -1920,16 +1971,17 @@ func TestOrchestrator_PostValidationContinue(t *testing.T) {
 			crossCallCount++
 			if crossCallCount == 1 {
 				// First cross-val rejects → should continue
-				os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Cross-val found issues")), 0644)
+				_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Cross-val found issues")), 0644)
 			} else {
 				// Second cross-val confirms
-				os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+				_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			}
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -1960,19 +2012,20 @@ func TestOrchestrator_NotifyWithEmptyTasksFile(t *testing.T) {
 
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -2001,18 +2054,19 @@ func TestOrchestrator_NotifyWithRootTasksDir(t *testing.T) {
 	// Always NEEDS_MORE_WORK to trigger max iterations notification
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Continue")), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Continue")), 0644)
 			return nil
 		},
 	}
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -2044,6 +2098,7 @@ func TestOrchestrator_PhaseValidateSetupComplianceError(t *testing.T) {
 	cfg.EnableLearnings = false
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	// Set session directly to skip phaseFindTasks
 	orchestrator.session = &state.SessionState{
@@ -2077,6 +2132,7 @@ func TestOrchestrator_PhaseValidateSetupAbsLearningsPath(t *testing.T) {
 	cfg.LearningsFile = absLearningsPath
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.session = &state.SessionState{
 		SchemaVersion: 2,
@@ -2107,6 +2163,7 @@ func TestOrchestrator_ResumeLoadError(t *testing.T) {
 	cfg.TasksValAI = ""
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir // No state file exists
 
 	ctx := context.Background()
@@ -2150,6 +2207,7 @@ func TestOrchestrator_ResumeValidationFail(t *testing.T) {
 	cfg.TasksValAI = ""
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 
 	ctx := context.Background()
@@ -2176,7 +2234,7 @@ func TestOrchestrator_ContextCancelledBeforeIteration(t *testing.T) {
 
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
@@ -2185,7 +2243,7 @@ func TestOrchestrator_ContextCancelledBeforeIteration(t *testing.T) {
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
 			valCallCount++
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Continue")), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Continue")), 0644)
 			// Cancel after first completed iteration so next iteration check catches it
 			if valCallCount == 1 {
 				cancel()
@@ -2195,6 +2253,7 @@ func TestOrchestrator_ContextCancelledBeforeIteration(t *testing.T) {
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -2233,6 +2292,7 @@ func TestOrchestrator_CleanAndResume(t *testing.T) {
 	cfg.TasksValAI = ""
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = stateDir
 
 	ctx := context.Background()
@@ -2269,6 +2329,7 @@ func TestOrchestrator_PhaseFindTasksCountUncheckedError(t *testing.T) {
 	cfg.TasksValAI = ""
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 
 	ctx := context.Background()
@@ -2304,6 +2365,7 @@ Another weird line
 	cfg.MaxIterations = 1
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.session = &state.SessionState{
 		SchemaVersion: 2,
@@ -2334,6 +2396,7 @@ func TestOrchestrator_PhaseValidateSetupRelativeLearningsPath(t *testing.T) {
 	cfg.LearningsFile = "learnings.md" // Relative path
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.session = &state.SessionState{
 		SchemaVersion: 2,
@@ -2385,20 +2448,21 @@ Some work done.
 - Discovered an important pattern
 - Found a useful optimization
 `
-			os.WriteFile(outputPath, []byte(output), 0644)
+			_ = os.WriteFile(outputPath, []byte(output), 0644)
 			return nil
 		},
 	}
 
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -2421,6 +2485,7 @@ func TestOrchestrator_NotifyDirectCall(t *testing.T) {
 	cfg.NotifyWebhook = "" // Prevent actual sending
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.session = &state.SessionState{
 		SessionID: "test-notify",
 		TasksFile: "tasks.md", // filepath.Dir("tasks.md") = ".", filepath.Base(".") = "."
@@ -2437,6 +2502,7 @@ func TestOrchestrator_NotifyWithEmptyDir(t *testing.T) {
 	cfg.NotifyWebhook = ""
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.session = &state.SessionState{
 		SessionID: "test-notify-empty",
 		TasksFile: "", // filepath.Dir("") = ".", filepath.Base(".") = "."
@@ -2465,6 +2531,7 @@ func TestOrchestrator_PhaseValidateSetupError(t *testing.T) {
 	cfg.EnableLearnings = false
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 
 	// We need phaseValidateSetup to fail. It calls tasks.CheckCompliance(session.TasksFile).
@@ -2500,6 +2567,7 @@ func TestOrchestrator_RunPhaseValidateSetupFail(t *testing.T) {
 	cfg.EnableLearnings = false
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 
 	// Override session TasksFile to a non-existent path after phaseFindTasks succeeds
@@ -2566,6 +2634,7 @@ func TestOrchestrator_PhaseValidateSetupWithViolations(t *testing.T) {
 	cfg.EnableLearnings = false
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.session = &state.SessionState{
 		SchemaVersion: 2,
@@ -2595,6 +2664,7 @@ func TestOrchestrator_DirectPhaseFindTasksDiscoverError(t *testing.T) {
 	cfg.CrossValidate = false
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.session = &state.SessionState{
 		SchemaVersion: 2,
@@ -2636,6 +2706,7 @@ func TestOrchestrator_DirectPhaseFetchIssueSuccess(t *testing.T) {
 	cfg.GithubIssue = "owner/repo#123"
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.session = &state.SessionState{
 		SchemaVersion: 2,
@@ -2677,6 +2748,7 @@ func TestOrchestrator_DirectPhaseFetchIssueCacheError(t *testing.T) {
 	cfg.GithubIssue = "owner/repo#123"
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = filepath.Join(invalidStateDir, "nested") // Can't create dir inside a file
 	orchestrator.session = &state.SessionState{
 		SchemaVersion: 2,
@@ -2713,7 +2785,7 @@ func TestOrchestrator_IterationLoopDefaultExitCode(t *testing.T) {
 
 	implRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
 			return nil
 		},
 	}
@@ -2730,12 +2802,13 @@ func TestOrchestrator_IterationLoopDefaultExitCode(t *testing.T) {
 	valRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
 			// Return an unknown verdict that ProcessVerdict maps to default
-			os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("TOTALLY_UNKNOWN_VERDICT", "strange")), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("TOTALLY_UNKNOWN_VERDICT", "strange")), 0644)
 			return nil
 		},
 	}
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.ImplRunner = implRunner
 	orchestrator.ValRunner = valRunner
@@ -2764,6 +2837,7 @@ func TestOrchestrator_RunFullPathValidateSetupFails(t *testing.T) {
 	cfg.EnableLearnings = false
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 
 	// Run up through init and find tasks, then corrupt the session's tasks file
@@ -2787,10 +2861,11 @@ func TestOrchestrator_RunFullPathValidateSetupFails(t *testing.T) {
 
 	// Approach: use a custom stateDir that can hold state, and a tasks file
 	// that will be made unreadable after phaseFindTasks reads it.
-	os.Chmod(tasksFile, 0000) // Remove read permission
-	defer os.Chmod(tasksFile, 0644)
+	_ = os.Chmod(tasksFile, 0000) // Remove read permission
+	defer func() { _ = os.Chmod(tasksFile, 0644) }()
 
 	orchestrator2 := NewOrchestrator(cfg)
+	orchestrator2.CommandChecker = alwaysAvailable
 	orchestrator2.StateDir = filepath.Join(tmpDir, ".state")
 
 	ctx := context.Background()
@@ -2837,6 +2912,7 @@ func TestOrchestrator_RunPhaseValidateSetupFailViaResume(t *testing.T) {
 	cfg.EnableLearnings = false
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = stateDir
 
 	ctx := context.Background()
@@ -2867,6 +2943,7 @@ func TestOrchestrator_DirectPhaseFindTasksCountUncheckedError(t *testing.T) {
 	cfg.TasksFile = tasksFile
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.session = &state.SessionState{
 		SchemaVersion: 2,
@@ -2893,6 +2970,7 @@ func TestOrchestrator_DirectPhaseFindTasksDiscoverSuccess(t *testing.T) {
 	cfg.TasksFile = "" // Force discovery
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = tmpDir
 	orchestrator.session = &state.SessionState{
 		SchemaVersion: 2,
@@ -2915,6 +2993,7 @@ func TestOrchestrator_PhaseTasksValidationSkipNoSpecNoIssue(t *testing.T) {
 	cfg.GithubIssue = ""
 
 	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.session = &state.SessionState{
 		SchemaVersion: 2,
 		SessionID:     "test-skip",
