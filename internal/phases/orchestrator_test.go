@@ -2888,13 +2888,16 @@ func TestOrchestrator_RunFullPathValidateSetupFails(t *testing.T) {
 	assert.Equal(t, exitcode.Error, exitCode)
 }
 
-// TestOrchestrator_RunPhaseValidateSetupFailViaResume tests Run returning from phaseValidateSetup
-// by using --resume with a state whose tasks file is non-existent, which makes compliance check fail.
-func TestOrchestrator_RunPhaseValidateSetupFailViaResume(t *testing.T) {
+// TestOrchestrator_ResumeSkipsValidateSetupAndTasksValidation verifies that --resume
+// skips phases 6-9 (validate setup, fetch issue, tasks validation, schedule wait) and
+// proceeds directly to the iteration loop.
+func TestOrchestrator_ResumeSkipsValidateSetupAndTasksValidation(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create a state with a tasks file that doesn't exist
-	nonExistentTasks := filepath.Join(tmpDir, "gone-tasks.md")
+	// Create a tasks file so the iteration loop can run
+	tasksFile := filepath.Join(tmpDir, "tasks.md")
+	tasksContent := "# Tasks\n- [ ] Task 1\n"
+	require.NoError(t, os.WriteFile(tasksFile, []byte(tasksContent), 0644))
 
 	stateDir := tmpDir
 	savedState := &state.SessionState{
@@ -2905,34 +2908,51 @@ func TestOrchestrator_RunPhaseValidateSetupFailViaResume(t *testing.T) {
 		Iteration:       1,
 		Status:          state.StatusInterrupted,
 		Phase:           state.PhaseImplementation,
-		TasksFile:       nonExistentTasks,
+		TasksFile:       tasksFile,
 		TasksFileHash:   "dummy",
 		AICli:           "claude",
 		ImplModel:       "opus",
 		ValModel:        "opus",
-		MaxIterations:   5,
+		MaxIterations:   2,
 		MaxInadmissible: 5,
 	}
 	require.NoError(t, state.SaveState(savedState, stateDir))
 
 	cfg := config.NewDefaultConfig()
-	cfg.TasksFile = nonExistentTasks
+	cfg.TasksFile = tasksFile
 	cfg.Resume = true
 	cfg.ResumeForce = true // Skip hash validation
 	cfg.CrossValidate = false
 	cfg.FinalPlanAI = ""
 	cfg.TasksValAI = ""
+	cfg.GithubIssue = "99" // Would trigger tasks validation if not skipped
 	cfg.EnableLearnings = false
+
+	implRunner := &MockOrchestratorAIRunner{
+		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			return nil
+		},
+	}
+	valRunner := &MockOrchestratorAIRunner{
+		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Keep going")), 0644)
+			return nil
+		},
+	}
 
 	orchestrator := NewOrchestrator(cfg)
 	orchestrator.CommandChecker = alwaysAvailable
 	orchestrator.StateDir = stateDir
+	orchestrator.ImplRunner = implRunner
+	orchestrator.ValRunner = valRunner
 
 	ctx := context.Background()
 	exitCode := orchestrator.Run(ctx)
 
-	// phaseValidateSetup should fail because the tasks file doesn't exist
-	assert.Equal(t, exitcode.Error, exitCode, "should error in phaseValidateSetup when tasks file missing")
+	// Should reach max iterations (not error from validate setup or tasks validation)
+	assert.Equal(t, exitcode.MaxIterations, exitCode,
+		"resume should skip validate setup and tasks validation, reaching iteration loop")
 }
 
 // TestOrchestrator_DirectPhaseFindTasksCountUncheckedError tests when CountUnchecked fails.
