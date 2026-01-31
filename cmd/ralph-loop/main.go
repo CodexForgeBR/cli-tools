@@ -27,9 +27,10 @@ func main() {
 	cfg := config.NewDefaultConfig()
 
 	rootCmd := &cobra.Command{
-		Use:   "ralph-loop",
-		Short: "Dual-model AI implementation-validation loop orchestrator",
-		Long:  "Ralph Loop orchestrates AI-powered implementation and validation cycles for spec-driven development.",
+		Use:     "ralph-loop",
+		Short:   "Dual-model AI implementation-validation loop orchestrator",
+		Long:    "Ralph Loop orchestrates AI-powered implementation and validation cycles for spec-driven development.",
+		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Validate flags after parsing
 			if err := cli.ValidateFlags(cmd, cfg); err != nil {
@@ -46,14 +47,6 @@ func main() {
 
 	// Set custom help template
 	cli.SetCustomHelp(rootCmd)
-
-	rootCmd.AddCommand(&cobra.Command{
-		Use:   "version",
-		Short: "Print version information",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("ralph-loop version %s (commit: %s, built: %s)\n", version, commit, date)
-		},
-	})
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
