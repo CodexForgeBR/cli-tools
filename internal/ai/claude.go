@@ -28,7 +28,7 @@ func (r *ClaudeRunner) BuildArgs(prompt string) []string {
 	if r.Verbose {
 		args = append(args, "--verbose")
 	}
-	args = append(args, prompt)
+	args = append(args, "--", prompt)
 	return args
 }
 

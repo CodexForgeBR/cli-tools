@@ -89,7 +89,7 @@ func FetchIssue(owner, repo string, number int) (string, error) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		ref := fmt.Sprintf("#%d", number)
-		if owner != "" {
+		if owner != "" && repo != "" {
 			ref = fmt.Sprintf("%s/%s#%d", owner, repo, number)
 		}
 		return "", fmt.Errorf("failed to fetch issue %s: %w\nOutput: %s",
