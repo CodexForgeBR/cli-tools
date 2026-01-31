@@ -145,11 +145,21 @@ func runOrchestrator(cmd *cobra.Command, cfg *config.Config) error {
 	// Build CLI overrides map using Changed() for accurate detection
 	cliOverrides := buildCLIOverrides(cmd, cfg)
 
+	// Record which keys the user explicitly set via CLI flags so that
+	// resume logic can preserve them instead of restoring saved-state values.
+	cliOverrideKeys := make(map[string]bool, len(cliOverrides))
+	for k := range cliOverrides {
+		cliOverrideKeys[k] = true
+	}
+
 	// Load config with precedence
 	finalCfg, err := config.LoadWithPrecedence(globalConfigPath, projectConfigPath, explicitConfigPath, cliOverrides)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+
+	// Store CLI override keys so resume logic knows which flags to preserve
+	finalCfg.CLIOverrides = cliOverrideKeys
 
 	// Merge CLI-only flags (not in config files)
 	finalCfg.TasksFile = cfg.TasksFile

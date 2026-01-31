@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1193,6 +1194,205 @@ func TestOrchestrator_ResumeRestoresConfig(t *testing.T) {
 	assert.True(t, cfg.CrossValidate, "cross validate should be restored")
 	assert.Equal(t, "claude", cfg.CrossAI, "cross AI should be restored")
 	assert.Equal(t, "opus", cfg.CrossModel, "cross model should be restored")
+}
+
+// TestOrchestrator_ResumePreservesCLIOverrides verifies that explicit CLI flag
+// overrides are preserved during resume and not overwritten by saved state.
+func TestOrchestrator_ResumePreservesCLIOverrides(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tasksFile := filepath.Join(tmpDir, "tasks.md")
+	require.NoError(t, os.WriteFile(tasksFile, []byte("# Tasks\n- [ ] Task 1\n"), 0644))
+
+	stateDir := tmpDir
+	savedState := &state.SessionState{
+		SchemaVersion:   2,
+		SessionID:       "resume-cli-override-test",
+		StartedAt:       "2026-01-30T14:00:00Z",
+		LastUpdated:     "2026-01-30T14:30:00Z",
+		Iteration:       0,
+		Status:          state.StatusInterrupted,
+		Phase:           state.PhaseImplementation,
+		TasksFile:       tasksFile,
+		TasksFileHash:   "dummy",
+		AICli:           "codex",
+		ImplModel:       "saved-model",
+		ValModel:        "saved-val",
+		MaxIterations:   10,
+		MaxInadmissible: 3,
+	}
+	require.NoError(t, state.SaveState(savedState, stateDir))
+
+	cfg := config.NewDefaultConfig()
+	cfg.TasksFile = tasksFile
+	cfg.ResumeForce = true
+	cfg.Resume = true
+	cfg.CrossValidate = false
+	cfg.FinalPlanAI = ""
+	cfg.TasksValAI = ""
+
+	// Simulate CLI --max-iterations 2 --ai claude being explicitly set
+	cfg.MaxIterations = 2
+	cfg.AIProvider = "claude"
+	cfg.CLIOverrides = map[string]bool{
+		"MAX_ITERATIONS": true,
+		"AI_CLI":         true,
+	}
+
+	valRunner := &MockOrchestratorAIRunner{
+		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Keep going")), 0644)
+			return nil
+		},
+	}
+	implRunner := &MockOrchestratorAIRunner{
+		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			return nil
+		},
+	}
+
+	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
+	orchestrator.StateDir = stateDir
+	orchestrator.ImplRunner = implRunner
+	orchestrator.ValRunner = valRunner
+
+	ctx := context.Background()
+	exitCode := orchestrator.Run(ctx)
+
+	// MaxIterations was overridden to 2 via CLI, so it should NOT be restored to 10
+	assert.Equal(t, exitcode.MaxIterations, exitCode, "should reach max iterations")
+	assert.Equal(t, 2, cfg.MaxIterations, "CLI override for max iterations should be preserved")
+	assert.Equal(t, "claude", cfg.AIProvider, "CLI override for AI provider should be preserved")
+
+	// Values NOT in CLIOverrides should be restored from state
+	assert.Equal(t, "saved-model", cfg.ImplModel, "impl model should be restored from state")
+	assert.Equal(t, "saved-val", cfg.ValModel, "val model should be restored from state")
+	assert.Equal(t, 3, cfg.MaxInadmissible, "max inadmissible should be restored from state")
+}
+
+// TestOrchestrator_ResumeScheduleWaitFutureTarget verifies that a resumed
+// session with a future schedule target still waits for it.
+func TestOrchestrator_ResumeScheduleWaitFutureTarget(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tasksFile := filepath.Join(tmpDir, "tasks.md")
+	require.NoError(t, os.WriteFile(tasksFile, []byte("# Tasks\n- [ ] Task 1\n"), 0644))
+
+	futureTime := time.Now().Add(24 * time.Hour)
+	savedState := &state.SessionState{
+		SchemaVersion:   2,
+		SessionID:       "resume-schedule-test",
+		StartedAt:       "2026-01-30T14:00:00Z",
+		LastUpdated:     "2026-01-30T14:30:00Z",
+		Iteration:       0,
+		Status:          state.StatusInterrupted,
+		Phase:           state.PhaseWaitingForSchedule,
+		TasksFile:       tasksFile,
+		TasksFileHash:   "dummy",
+		AICli:           "claude",
+		ImplModel:       "opus",
+		ValModel:        "opus",
+		MaxIterations:   5,
+		MaxInadmissible: 5,
+		Schedule: state.ScheduleState{
+			Enabled:     true,
+			TargetEpoch: futureTime.Unix(),
+			TargetHuman: futureTime.Format("2006-01-02 15:04:05"),
+		},
+	}
+	require.NoError(t, state.SaveState(savedState, tmpDir))
+
+	cfg := config.NewDefaultConfig()
+	cfg.TasksFile = tasksFile
+	cfg.ResumeForce = true
+	cfg.Resume = true
+	cfg.CrossValidate = false
+	cfg.FinalPlanAI = ""
+	cfg.TasksValAI = ""
+
+	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
+	orchestrator.StateDir = tmpDir
+
+	// Cancel context immediately so the schedule wait gets interrupted
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { cancel() }()
+
+	exitCode := orchestrator.Run(ctx)
+
+	// Should be interrupted during the schedule wait, NOT skip it
+	assert.Equal(t, exitcode.Interrupted, exitCode,
+		"resumed session with future schedule should wait and get interrupted")
+}
+
+// TestOrchestrator_ResumeScheduleWaitPastTarget verifies that a resumed
+// session with a past schedule target skips the wait.
+func TestOrchestrator_ResumeScheduleWaitPastTarget(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tasksFile := filepath.Join(tmpDir, "tasks.md")
+	require.NoError(t, os.WriteFile(tasksFile, []byte("# Tasks\n- [ ] Task 1\n"), 0644))
+
+	pastTime := time.Now().Add(-1 * time.Hour)
+	savedState := &state.SessionState{
+		SchemaVersion:   2,
+		SessionID:       "resume-schedule-past-test",
+		StartedAt:       "2026-01-30T14:00:00Z",
+		LastUpdated:     "2026-01-30T14:30:00Z",
+		Iteration:       0,
+		Status:          state.StatusInterrupted,
+		Phase:           state.PhaseWaitingForSchedule,
+		TasksFile:       tasksFile,
+		TasksFileHash:   "dummy",
+		AICli:           "claude",
+		ImplModel:       "opus",
+		ValModel:        "opus",
+		MaxIterations:   1,
+		MaxInadmissible: 5,
+		Schedule: state.ScheduleState{
+			Enabled:     true,
+			TargetEpoch: pastTime.Unix(),
+			TargetHuman: pastTime.Format("2006-01-02 15:04:05"),
+		},
+	}
+	require.NoError(t, state.SaveState(savedState, tmpDir))
+
+	cfg := config.NewDefaultConfig()
+	cfg.TasksFile = tasksFile
+	cfg.ResumeForce = true
+	cfg.Resume = true
+	cfg.CrossValidate = false
+	cfg.FinalPlanAI = ""
+	cfg.TasksValAI = ""
+
+	valRunner := &MockOrchestratorAIRunner{
+		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
+			_ = os.WriteFile(tasksFile, []byte("# Tasks\n- [x] Task 1\n"), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			return nil
+		},
+	}
+	implRunner := &MockOrchestratorAIRunner{
+		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
+			_ = os.WriteFile(outputPath, []byte("Implementation output"), 0644)
+			return nil
+		},
+	}
+
+	orchestrator := NewOrchestrator(cfg)
+	orchestrator.CommandChecker = alwaysAvailable
+	orchestrator.StateDir = tmpDir
+	orchestrator.ImplRunner = implRunner
+	orchestrator.ValRunner = valRunner
+
+	ctx := context.Background()
+	exitCode := orchestrator.Run(ctx)
+
+	// Past schedule target should be skipped, proceeding to iteration loop
+	assert.Equal(t, exitcode.Success, exitCode,
+		"resumed session with past schedule should skip wait and complete")
 }
 
 // TestOrchestrator_TasksValidationWithPlan verifies tasks validation runs when plan file is set
