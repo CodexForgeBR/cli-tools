@@ -10,15 +10,6 @@ on:
       - ".github/workflows/**"
       - ".golangci.yml"
       - ".goreleaser.yml"
-  push:
-    branches: [main]
-    paths:
-      - "**.go"
-      - "go.mod"
-      - "go.sum"
-      - ".github/workflows/**"
-      - ".golangci.yml"
-      - ".goreleaser.yml"
 
 jobs:
   test:
