@@ -23,9 +23,6 @@ builds:
 
 archives:
   - id: ralph-loop
-    builds:
-      - ralph-loop
-    format: tar.gz
     name_template: "ralph-loop_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
@@ -39,7 +36,7 @@ changelog:
       - "^test:"
       - "^ci:"
 
-brews:
+homebrew:
   - name: ralph-loop
     repository:
       owner: CodexForgeBR
