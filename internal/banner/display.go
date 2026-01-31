@@ -9,8 +9,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/CodexForgeBR/cli-tools/internal/logging"
 	"github.com/fatih/color"
+
+	"github.com/CodexForgeBR/cli-tools/internal/logging"
 )
 
 var (
