@@ -214,8 +214,8 @@ func TestRunTasksValidation_ParseError(t *testing.T) {
 	assert.Contains(t, result.Feedback, "failed to parse tasks validation")
 }
 
-// TestRunTasksValidation_PromptWriteError tests handling when prompt file cannot be written.
-func TestRunTasksValidation_PromptWriteError(t *testing.T) {
+// TestRunTasksValidation_OutputWriteError tests handling when output file cannot be written.
+func TestRunTasksValidation_OutputWriteError(t *testing.T) {
 	tmpDir := t.TempDir()
 	specFile := filepath.Join(tmpDir, "spec.md")
 	tasksFile := filepath.Join(tmpDir, "tasks.md")

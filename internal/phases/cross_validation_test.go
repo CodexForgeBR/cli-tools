@@ -244,8 +244,8 @@ func TestRunCrossValidation_ParseError(t *testing.T) {
 	assert.Contains(t, result.Feedback, "failed to parse cross-validation")
 }
 
-// TestRunCrossValidation_PromptWriteError tests handling when prompt file cannot be written.
-func TestRunCrossValidation_PromptWriteError(t *testing.T) {
+// TestRunCrossValidation_OutputWriteError tests handling when output file cannot be written.
+func TestRunCrossValidation_OutputWriteError(t *testing.T) {
 	tmpDir := t.TempDir()
 	tasksFile := filepath.Join(tmpDir, "tasks.md")
 	require.NoError(t, os.WriteFile(tasksFile, []byte("# Tasks"), 0644))
