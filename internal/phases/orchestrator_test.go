@@ -73,18 +73,6 @@ func makeOrchestratorCrossValidationJSON(verdict string, feedback string) string
 	return string(jsonData)
 }
 
-// Helper function to create final-plan validation JSON output (RALPH_FINAL_PLAN_VALIDATION)
-func makeOrchestratorFinalPlanJSON(verdict string, feedback string) string {
-	data := map[string]interface{}{
-		"RALPH_FINAL_PLAN_VALIDATION": map[string]interface{}{
-			"verdict":  verdict,
-			"feedback": feedback,
-		},
-	}
-	jsonData, _ := json.Marshal(data)
-	return string(jsonData)
-}
-
 // Helper function to create validation JSON with blocked tasks
 func makeOrchestratorValidationJSONWithBlocked(verdict string, feedback string, blockedTasks []string) string {
 	data := map[string]interface{}{
