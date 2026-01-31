@@ -36,7 +36,7 @@ changelog:
       - "^test:"
       - "^ci:"
 
-homebrew:
+homebrew_casks:
   - name: ralph-loop
     repository:
       owner: CodexForgeBR
@@ -45,5 +45,3 @@ homebrew:
     homepage: "https://github.com/CodexForgeBR/cli-tools"
     description: "Dual-model AI implementation-validation loop orchestrator"
     license: "MIT"
-    install: |
-      bin.install "ralph-loop"
