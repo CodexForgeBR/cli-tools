@@ -47,18 +47,8 @@ func RunCrossValidation(ctx context.Context, cfg CrossValidationConfig) CrossVal
 	tmpDir := os.TempDir()
 	outputPath := filepath.Join(tmpDir, "cross-validation-output.txt")
 
-	// Write prompt to a temporary file for the AI runner
-	promptPath := filepath.Join(tmpDir, "cross-validation-prompt.txt")
-	if err := os.WriteFile(promptPath, []byte(promptText), 0644); err != nil {
-		return CrossValidationResult{
-			Action:   "exit",
-			ExitCode: exitcode.Error,
-			Feedback: fmt.Sprintf("failed to write prompt: %v", err),
-		}
-	}
-
-	// Run cross-validation with the AI runner
-	err := cfg.Runner.Run(ctx, promptPath, outputPath)
+	// Run cross-validation with the AI runner (pass prompt content, not file path)
+	err := cfg.Runner.Run(ctx, promptText, outputPath)
 	if err != nil {
 		return CrossValidationResult{
 			Action:   "exit",

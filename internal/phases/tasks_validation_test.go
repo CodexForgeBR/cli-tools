@@ -248,7 +248,7 @@ func TestRunTasksValidation_PromptWriteError(t *testing.T) {
 
 	assert.Equal(t, "exit", result.Action)
 	assert.Equal(t, exitcode.Error, result.ExitCode)
-	assert.Contains(t, result.Feedback, "failed to write prompt")
+	assert.Contains(t, result.Feedback, "tasks validation AI error")
 }
 
 // TestRunTasksValidation_RunnerError tests handling when the AI runner returns an error.

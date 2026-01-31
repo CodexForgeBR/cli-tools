@@ -283,7 +283,7 @@ func TestRunCrossValidation_PromptWriteError(t *testing.T) {
 
 	assert.Equal(t, "exit", result.Action)
 	assert.Equal(t, exitcode.Error, result.ExitCode)
-	assert.Contains(t, result.Feedback, "failed to write prompt")
+	assert.Contains(t, result.Feedback, "cross-validation AI error")
 }
 
 // TestRunCrossValidation_RunnerError tests handling when the AI runner returns an error.

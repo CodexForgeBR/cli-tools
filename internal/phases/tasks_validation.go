@@ -44,18 +44,8 @@ func RunTasksValidation(ctx context.Context, cfg TasksValidationConfig) TasksVal
 	tmpDir := os.TempDir()
 	outputPath := filepath.Join(tmpDir, "tasks-validation-output.txt")
 
-	// Write prompt to a temporary file for the AI runner
-	promptPath := filepath.Join(tmpDir, "tasks-validation-prompt.txt")
-	if err := os.WriteFile(promptPath, []byte(promptText), 0644); err != nil {
-		return TasksValidationResult{
-			Action:   "exit",
-			ExitCode: exitcode.Error,
-			Feedback: fmt.Sprintf("failed to write prompt: %v", err),
-		}
-	}
-
-	// Run tasks validation with the AI runner
-	err := cfg.Runner.Run(ctx, promptPath, outputPath)
+	// Run tasks validation with the AI runner (pass prompt content, not file path)
+	err := cfg.Runner.Run(ctx, promptText, outputPath)
 	if err != nil {
 		return TasksValidationResult{
 			Action:   "exit",

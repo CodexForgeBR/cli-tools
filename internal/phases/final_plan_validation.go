@@ -45,18 +45,8 @@ func RunFinalPlanValidation(ctx context.Context, cfg FinalPlanValidationConfig) 
 	tmpDir := os.TempDir()
 	outputPath := filepath.Join(tmpDir, "final-plan-validation-output.txt")
 
-	// Write prompt to a temporary file for the AI runner
-	promptPath := filepath.Join(tmpDir, "final-plan-validation-prompt.txt")
-	if err := os.WriteFile(promptPath, []byte(promptText), 0644); err != nil {
-		return FinalPlanValidationResult{
-			Action:   "exit",
-			ExitCode: exitcode.Error,
-			Feedback: fmt.Sprintf("failed to write prompt: %v", err),
-		}
-	}
-
-	// Run final plan validation with the AI runner
-	err := cfg.Runner.Run(ctx, promptPath, outputPath)
+	// Run final plan validation with the AI runner (pass prompt content, not file path)
+	err := cfg.Runner.Run(ctx, promptText, outputPath)
 	if err != nil {
 		return FinalPlanValidationResult{
 			Action:   "exit",

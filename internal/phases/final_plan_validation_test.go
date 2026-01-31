@@ -270,7 +270,7 @@ func TestRunFinalPlanValidation_PromptWriteError(t *testing.T) {
 
 	assert.Equal(t, "exit", result.Action)
 	assert.Equal(t, exitcode.Error, result.ExitCode)
-	assert.Contains(t, result.Feedback, "failed to write prompt")
+	assert.Contains(t, result.Feedback, "final plan validation AI error")
 }
 
 // TestRunFinalPlanValidation_RunnerError tests handling when the AI runner returns an error.
