@@ -233,8 +233,8 @@ func TestRunFinalPlanValidation_ParseError(t *testing.T) {
 	assert.Contains(t, result.Feedback, "failed to parse final plan validation")
 }
 
-// TestRunFinalPlanValidation_PromptWriteError tests handling when prompt file cannot be written.
-func TestRunFinalPlanValidation_PromptWriteError(t *testing.T) {
+// TestRunFinalPlanValidation_OutputWriteError tests handling when output file cannot be written.
+func TestRunFinalPlanValidation_OutputWriteError(t *testing.T) {
 	tmpDir := t.TempDir()
 	specFile := filepath.Join(tmpDir, "spec.md")
 	tasksFile := filepath.Join(tmpDir, "tasks.md")
