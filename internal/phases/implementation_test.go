@@ -12,13 +12,13 @@ import (
 
 // MockAIRunner is a test implementation of the AIRunner interface
 type MockAIRunner struct {
-	CalledWith   string
-	OutputData   string
-	OutputPath   string
-	Err          error
-	CallCount    int
-	PromptLog    []string
-	OutputPaths  []string
+	CalledWith  string
+	OutputData  string
+	OutputPath  string
+	Err         error
+	CallCount   int
+	PromptLog   []string
+	OutputPaths []string
 }
 
 func (m *MockAIRunner) Run(ctx context.Context, prompt string, outputPath string) error {
@@ -51,10 +51,10 @@ func TestRunImplementationPhase_FirstIteration(t *testing.T) {
 	}
 
 	config := ImplementationConfig{
-		Runner:        mockRunner,
-		Iteration:     1,
-		OutputPath:    outputPath,
-		FirstPrompt:   "This is the first iteration prompt",
+		Runner:         mockRunner,
+		Iteration:      1,
+		OutputPath:     outputPath,
+		FirstPrompt:    "This is the first iteration prompt",
 		ContinuePrompt: "This is the continue prompt",
 	}
 
@@ -87,10 +87,10 @@ func TestRunImplementationPhase_SubsequentIteration(t *testing.T) {
 	}
 
 	config := ImplementationConfig{
-		Runner:        mockRunner,
-		Iteration:     5,
-		OutputPath:    outputPath,
-		FirstPrompt:   "This is the first iteration prompt",
+		Runner:         mockRunner,
+		Iteration:      5,
+		OutputPath:     outputPath,
+		FirstPrompt:    "This is the first iteration prompt",
 		ContinuePrompt: "This is the continue prompt",
 	}
 
@@ -133,10 +133,10 @@ func TestRunImplementationPhase_IterationProgression(t *testing.T) {
 			}
 
 			config := ImplementationConfig{
-				Runner:        mockRunner,
-				Iteration:     tt.iteration,
-				OutputPath:    outputPath,
-				FirstPrompt:   "FIRST",
+				Runner:         mockRunner,
+				Iteration:      tt.iteration,
+				OutputPath:     outputPath,
+				FirstPrompt:    "FIRST",
 				ContinuePrompt: "CONTINUE",
 			}
 
@@ -161,10 +161,10 @@ func TestRunImplementationPhase_RunnerError(t *testing.T) {
 	}
 
 	config := ImplementationConfig{
-		Runner:        mockRunner,
-		Iteration:     1,
-		OutputPath:    outputPath,
-		FirstPrompt:   "First prompt",
+		Runner:         mockRunner,
+		Iteration:      1,
+		OutputPath:     outputPath,
+		FirstPrompt:    "First prompt",
 		ContinuePrompt: "Continue prompt",
 	}
 
@@ -189,10 +189,10 @@ func TestRunImplementationPhase_ContextCancellation(t *testing.T) {
 	}
 
 	config := ImplementationConfig{
-		Runner:        mockRunner,
-		Iteration:     1,
-		OutputPath:    outputPath,
-		FirstPrompt:   "First prompt",
+		Runner:         mockRunner,
+		Iteration:      1,
+		OutputPath:     outputPath,
+		FirstPrompt:    "First prompt",
 		ContinuePrompt: "Continue prompt",
 	}
 
@@ -215,10 +215,10 @@ func TestRunImplementationPhase_OutputPathCreation(t *testing.T) {
 	}
 
 	config := ImplementationConfig{
-		Runner:        mockRunner,
-		Iteration:     1,
-		OutputPath:    outputPath,
-		FirstPrompt:   "Test prompt",
+		Runner:         mockRunner,
+		Iteration:      1,
+		OutputPath:     outputPath,
+		FirstPrompt:    "Test prompt",
 		ContinuePrompt: "Continue",
 	}
 
@@ -316,10 +316,10 @@ func TestRunImplementationPhase_MultipleIterations(t *testing.T) {
 		mockRunner.OutputData = "Output for iteration " + string(rune('0'+iter))
 
 		config := ImplementationConfig{
-			Runner:        mockRunner,
-			Iteration:     iter,
-			OutputPath:    outputPath,
-			FirstPrompt:   "FIRST",
+			Runner:         mockRunner,
+			Iteration:      iter,
+			OutputPath:     outputPath,
+			FirstPrompt:    "FIRST",
 			ContinuePrompt: "CONTINUE",
 		}
 
@@ -353,10 +353,10 @@ func TestRunImplementationPhase_EmptyPrompts(t *testing.T) {
 	}
 
 	config := ImplementationConfig{
-		Runner:        mockRunner,
-		Iteration:     1,
-		OutputPath:    outputPath,
-		FirstPrompt:   "",
+		Runner:         mockRunner,
+		Iteration:      1,
+		OutputPath:     outputPath,
+		FirstPrompt:    "",
 		ContinuePrompt: "",
 	}
 
@@ -384,10 +384,10 @@ func TestRunImplementationPhase_LongPrompts(t *testing.T) {
 	}
 
 	config := ImplementationConfig{
-		Runner:        mockRunner,
-		Iteration:     1,
-		OutputPath:    outputPath,
-		FirstPrompt:   longPrompt,
+		Runner:         mockRunner,
+		Iteration:      1,
+		OutputPath:     outputPath,
+		FirstPrompt:    longPrompt,
 		ContinuePrompt: "short",
 	}
 
@@ -514,10 +514,10 @@ func TestRunImplementationPhase_SpecialCharactersInPrompts(t *testing.T) {
 	}
 
 	config := ImplementationConfig{
-		Runner:        mockRunner,
-		Iteration:     1,
-		OutputPath:    outputPath,
-		FirstPrompt:   specialPrompt,
+		Runner:         mockRunner,
+		Iteration:      1,
+		OutputPath:     outputPath,
+		FirstPrompt:    specialPrompt,
 		ContinuePrompt: "continue",
 	}
 

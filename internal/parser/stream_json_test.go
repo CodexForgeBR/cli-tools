@@ -22,18 +22,18 @@ func TestParseStreamJSON_AssistantTextContent(t *testing.T) {
 			expected: "Hello world",
 		},
 		{
-			name: "multiple text blocks in single message",
-			input: `{"type":"assistant","message":{"content":[{"type":"text","text":"First part"},{"type":"text","text":"Second part"}]}}`,
+			name:     "multiple text blocks in single message",
+			input:    `{"type":"assistant","message":{"content":[{"type":"text","text":"First part"},{"type":"text","text":"Second part"}]}}`,
 			expected: "First partSecond part",
 		},
 		{
-			name: "text with RALPH_STATUS marker",
-			input: "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Task complete.\\n\\n```json\\n{\\\"RALPH_STATUS\\\":{\\\"completed_tasks\\\":[\\\"T001\\\"],\\\"blocked_tasks\\\":[],\\\"notes\\\":\\\"Done\\\"}}\\n```\"}]}}",
+			name:     "text with RALPH_STATUS marker",
+			input:    "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Task complete.\\n\\n```json\\n{\\\"RALPH_STATUS\\\":{\\\"completed_tasks\\\":[\\\"T001\\\"],\\\"blocked_tasks\\\":[],\\\"notes\\\":\\\"Done\\\"}}\\n```\"}]}}",
 			expected: "Task complete.\n\n```json\n{\"RALPH_STATUS\":{\"completed_tasks\":[\"T001\"],\"blocked_tasks\":[],\"notes\":\"Done\"}}\n```",
 		},
 		{
-			name: "text with RALPH_LEARNINGS marker",
-			input: `{"type":"assistant","message":{"content":[{"type":"text","text":"RALPH_LEARNINGS:\n- Pattern: Use interfaces"}]}}`,
+			name:     "text with RALPH_LEARNINGS marker",
+			input:    `{"type":"assistant","message":{"content":[{"type":"text","text":"RALPH_LEARNINGS:\n- Pattern: Use interfaces"}]}}`,
 			expected: "RALPH_LEARNINGS:\n- Pattern: Use interfaces",
 		},
 	}
@@ -61,18 +61,18 @@ func TestParseStreamJSON_ToolUseContent(t *testing.T) {
 			expected: "",
 		},
 		{
-			name: "text followed by tool use",
-			input: `{"type":"assistant","message":{"content":[{"type":"text","text":"I'll write the file now."},{"type":"tool_use","name":"Write","input":{"file_path":"/tmp/test.go","content":"package main"}}]}}`,
+			name:     "text followed by tool use",
+			input:    `{"type":"assistant","message":{"content":[{"type":"text","text":"I'll write the file now."},{"type":"tool_use","name":"Write","input":{"file_path":"/tmp/test.go","content":"package main"}}]}}`,
 			expected: "I'll write the file now.",
 		},
 		{
-			name: "tool use followed by text",
-			input: `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/tmp/test.go"}},{"type":"text","text":"File read successfully."}]}}`,
+			name:     "tool use followed by text",
+			input:    `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/tmp/test.go"}},{"type":"text","text":"File read successfully."}]}}`,
 			expected: "File read successfully.",
 		},
 		{
-			name: "multiple tool uses with text interspersed",
-			input: `{"type":"assistant","message":{"content":[{"type":"text","text":"Starting"},{"type":"tool_use","name":"Write","input":{}},{"type":"text","text":"Done"},{"type":"tool_use","name":"Read","input":{}}]}}`,
+			name:     "multiple tool uses with text interspersed",
+			input:    `{"type":"assistant","message":{"content":[{"type":"text","text":"Starting"},{"type":"tool_use","name":"Write","input":{}},{"type":"text","text":"Done"},{"type":"tool_use","name":"Read","input":{}}]}}`,
 			expected: "StartingDone",
 		},
 	}

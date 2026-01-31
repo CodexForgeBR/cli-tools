@@ -13,12 +13,12 @@ import (
 
 // PostValidationConfig configures the post-validation chain.
 type PostValidationConfig struct {
-	CrossValRunner     ai.AIRunner
-	FinalPlanRunner    ai.AIRunner
-	CrossValEnabled    bool
-	FinalPlanEnabled   bool
-	InadmissibleCount  int
-	MaxInadmissible    int
+	CrossValRunner    ai.AIRunner
+	FinalPlanRunner   ai.AIRunner
+	CrossValEnabled   bool
+	FinalPlanEnabled  bool
+	InadmissibleCount int
+	MaxInadmissible   int
 }
 
 // PostValidationResult contains the outcome of the post-validation chain.

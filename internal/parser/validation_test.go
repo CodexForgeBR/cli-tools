@@ -343,8 +343,8 @@ func TestParseValidation_MultipleJSONBlocks(t *testing.T) {
 // blocked_tasks array with various formats.
 func TestParseValidation_BlockedTasksArray(t *testing.T) {
 	tests := []struct {
-		name                string
-		input               string
+		name                 string
+		input                string
 		expectedBlockedTasks []string
 	}{
 		{
@@ -397,8 +397,8 @@ func TestParseValidation_BlockedTasksArray(t *testing.T) {
 // properly extracted with correct types.
 func TestParseValidation_NumericFieldTypes(t *testing.T) {
 	tests := []struct {
-		name           string
-		input          string
+		name              string
+		input             string
 		expectedRemaining int
 		expectedBlocked   int
 	}{

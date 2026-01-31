@@ -63,9 +63,9 @@ func processComplete(input VerdictInput) VerdictResult {
 	doable := input.Remaining - input.BlockedCount
 	if input.Remaining > 0 && doable > 0 {
 		return VerdictResult{
-			Action:   "continue",
-			ExitCode: 0,
-			Feedback: fmt.Sprintf("Validation marked complete but %d tasks remain unchecked. Continuing implementation.", input.Remaining),
+			Action:               "continue",
+			ExitCode:             0,
+			Feedback:             fmt.Sprintf("Validation marked complete but %d tasks remain unchecked. Continuing implementation.", input.Remaining),
 			NewInadmissibleCount: input.InadmissibleCount,
 		}
 	}

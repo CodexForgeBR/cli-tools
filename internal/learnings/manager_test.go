@@ -438,8 +438,6 @@ func TestAppendLearnings_WriteStringErrorPath(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to append learnings")
 }
 
-
-
 func TestAppendLearnings_WriteStringError_RLIMIT(t *testing.T) {
 	// Trigger WriteString error by setting RLIMIT_FSIZE to 0.
 	// This causes any write to a new file to fail with EFBIG ("file too large").

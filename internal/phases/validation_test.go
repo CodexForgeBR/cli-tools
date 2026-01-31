@@ -62,11 +62,11 @@ func TestRunValidationPhase_AIRunnerCalled(t *testing.T) {
 // TestRunValidationPhase_JSONExtraction verifies RALPH_VALIDATION JSON is extracted
 func TestRunValidationPhase_JSONExtraction(t *testing.T) {
 	tests := []struct {
-		name           string
-		outputData     string
-		expectedVerdict string
+		name             string
+		outputData       string
+		expectedVerdict  string
 		expectedFeedback string
-		shouldSucceed  bool
+		shouldSucceed    bool
 	}{
 		{
 			name: "clean JSON format",
@@ -76,9 +76,9 @@ func TestRunValidationPhase_JSONExtraction(t *testing.T) {
 					"feedback": "All requirements met"
 				}
 			}`,
-			expectedVerdict: "COMPLETE",
+			expectedVerdict:  "COMPLETE",
 			expectedFeedback: "All requirements met",
-			shouldSucceed:  true,
+			shouldSucceed:    true,
 		},
 		{
 			name: "JSON with surrounding text",
@@ -92,9 +92,9 @@ func TestRunValidationPhase_JSONExtraction(t *testing.T) {
 }
 
 That's my assessment.`,
-			expectedVerdict: "NEEDS_MORE_WORK",
+			expectedVerdict:  "NEEDS_MORE_WORK",
 			expectedFeedback: "Missing error handling",
-			shouldSucceed:  true,
+			shouldSucceed:    true,
 		},
 		{
 			name: "JSON in code block",
@@ -104,9 +104,9 @@ That's my assessment.`,
 		"feedback": "Need human review"
 	}
 }` + "\n```",
-			expectedVerdict: "ESCALATE",
+			expectedVerdict:  "ESCALATE",
 			expectedFeedback: "Need human review",
-			shouldSucceed:  true,
+			shouldSucceed:    true,
 		},
 		{
 			name: "verdict only",
@@ -115,9 +115,9 @@ That's my assessment.`,
 					"verdict": "BLOCKED"
 				}
 			}`,
-			expectedVerdict: "BLOCKED",
+			expectedVerdict:  "BLOCKED",
 			expectedFeedback: "",
-			shouldSucceed:  true,
+			shouldSucceed:    true,
 		},
 	}
 
@@ -252,7 +252,7 @@ func TestRunValidationPhase_AllVerdicts(t *testing.T) {
 
 			outputData := map[string]interface{}{
 				"RALPH_VALIDATION": map[string]interface{}{
-					"verdict": verdict,
+					"verdict":  verdict,
 					"feedback": "Test feedback for " + verdict,
 				},
 			}
@@ -392,7 +392,7 @@ Newlines and tabs are preserved.`
 
 	outputData := map[string]interface{}{
 		"RALPH_VALIDATION": map[string]interface{}{
-			"verdict": "NEEDS_MORE_WORK",
+			"verdict":  "NEEDS_MORE_WORK",
 			"feedback": complexFeedback,
 		},
 	}
@@ -438,7 +438,7 @@ func TestRunValidationPhase_MultipleRuns(t *testing.T) {
 
 		outputData := map[string]interface{}{
 			"RALPH_VALIDATION": map[string]interface{}{
-				"verdict": run.verdict,
+				"verdict":  run.verdict,
 				"feedback": run.feedback,
 			},
 		}
@@ -480,7 +480,7 @@ func TestRunValidationPhase_LongOutput(t *testing.T) {
 
 	outputData := map[string]interface{}{
 		"RALPH_VALIDATION": map[string]interface{}{
-			"verdict": "NEEDS_MORE_WORK",
+			"verdict":  "NEEDS_MORE_WORK",
 			"feedback": longFeedback,
 		},
 	}

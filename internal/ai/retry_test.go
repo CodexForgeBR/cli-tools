@@ -324,7 +324,7 @@ func TestRetryWithBackoff_Resume(t *testing.T) {
 		cfg := RetryConfig{
 			MaxRetries:   5,
 			BaseDelay:    5,
-			StartAttempt: 2, // Resume from attempt 2
+			StartAttempt: 2,  // Resume from attempt 2
 			StartDelay:   20, // Should be 20 (5 * 2^2)
 		}
 

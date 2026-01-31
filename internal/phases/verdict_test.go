@@ -10,25 +10,25 @@ import (
 // TestProcessVerdict_AllTransitions uses table-driven tests to verify all verdict state transitions
 func TestProcessVerdict_AllTransitions(t *testing.T) {
 	tests := []struct {
-		name                  string
-		input                 VerdictInput
-		expectedAction        string
-		expectedExitCode      int
-		expectedFeedback      string
-		expectedInadmissible  int
-		description           string
+		name                 string
+		input                VerdictInput
+		expectedAction       string
+		expectedExitCode     int
+		expectedFeedback     string
+		expectedInadmissible int
+		description          string
 	}{
 		// COMPLETE verdict transitions
 		{
 			name: "COMPLETE with zero unchecked tasks exits success",
 			input: VerdictInput{
-				Verdict:            "COMPLETE",
-				Feedback:           "All tasks done",
-				Remaining:          0,
-				BlockedCount:       0,
-				BlockedTasks:       []string{},
-				InadmissibleCount:  0,
-				MaxInadmissible:    5,
+				Verdict:           "COMPLETE",
+				Feedback:          "All tasks done",
+				Remaining:         0,
+				BlockedCount:      0,
+				BlockedTasks:      []string{},
+				InadmissibleCount: 0,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "exit",
 			expectedExitCode:     exitcode.Success,
@@ -39,13 +39,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "COMPLETE with doable unchecked tasks overrides to NEEDS_MORE_WORK",
 			input: VerdictInput{
-				Verdict:            "COMPLETE",
-				Feedback:           "All done but wait...",
-				Remaining:          5,
-				BlockedCount:       2,
-				BlockedTasks:       []string{"Task A", "Task B"},
-				InadmissibleCount:  0,
-				MaxInadmissible:    5,
+				Verdict:           "COMPLETE",
+				Feedback:          "All done but wait...",
+				Remaining:         5,
+				BlockedCount:      2,
+				BlockedTasks:      []string{"Task A", "Task B"},
+				InadmissibleCount: 0,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "continue",
 			expectedExitCode:     0,
@@ -56,13 +56,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "COMPLETE with all tasks blocked exits blocked",
 			input: VerdictInput{
-				Verdict:            "COMPLETE",
-				Feedback:           "Complete but everything blocked",
-				Remaining:          3,
-				BlockedCount:       3,
-				BlockedTasks:       []string{"Task X", "Task Y", "Task Z"},
-				InadmissibleCount:  0,
-				MaxInadmissible:    5,
+				Verdict:           "COMPLETE",
+				Feedback:          "Complete but everything blocked",
+				Remaining:         3,
+				BlockedCount:      3,
+				BlockedTasks:      []string{"Task X", "Task Y", "Task Z"},
+				InadmissibleCount: 0,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "exit",
 			expectedExitCode:     exitcode.Blocked,
@@ -73,13 +73,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "COMPLETE with more blocked than unchecked exits blocked",
 			input: VerdictInput{
-				Verdict:            "COMPLETE",
-				Feedback:           "Done",
-				Remaining:          2,
-				BlockedCount:       5,
-				BlockedTasks:       []string{"T1", "T2", "T3", "T4", "T5"},
-				InadmissibleCount:  0,
-				MaxInadmissible:    5,
+				Verdict:           "COMPLETE",
+				Feedback:          "Done",
+				Remaining:         2,
+				BlockedCount:      5,
+				BlockedTasks:      []string{"T1", "T2", "T3", "T4", "T5"},
+				InadmissibleCount: 0,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "exit",
 			expectedExitCode:     exitcode.Blocked,
@@ -92,13 +92,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "NEEDS_MORE_WORK returns feedback and continues",
 			input: VerdictInput{
-				Verdict:            "NEEDS_MORE_WORK",
-				Feedback:           "Fix the authentication logic",
-				Remaining:          8,
-				BlockedCount:       0,
-				BlockedTasks:       []string{},
-				InadmissibleCount:  2,
-				MaxInadmissible:    5,
+				Verdict:           "NEEDS_MORE_WORK",
+				Feedback:          "Fix the authentication logic",
+				Remaining:         8,
+				BlockedCount:      0,
+				BlockedTasks:      []string{},
+				InadmissibleCount: 2,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "continue",
 			expectedExitCode:     0,
@@ -111,13 +111,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "ESCALATE exits with escalate code",
 			input: VerdictInput{
-				Verdict:            "ESCALATE",
-				Feedback:           "Need human review for security concerns",
-				Remaining:          5,
-				BlockedCount:       0,
-				BlockedTasks:       []string{},
-				InadmissibleCount:  1,
-				MaxInadmissible:    5,
+				Verdict:           "ESCALATE",
+				Feedback:          "Need human review for security concerns",
+				Remaining:         5,
+				BlockedCount:      0,
+				BlockedTasks:      []string{},
+				InadmissibleCount: 1,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "exit",
 			expectedExitCode:     exitcode.Escalate,
@@ -130,13 +130,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "INADMISSIBLE under threshold increments count and continues",
 			input: VerdictInput{
-				Verdict:            "INADMISSIBLE",
-				Feedback:           "Output format is incorrect",
-				Remaining:          10,
-				BlockedCount:       0,
-				BlockedTasks:       []string{},
-				InadmissibleCount:  2,
-				MaxInadmissible:    5,
+				Verdict:           "INADMISSIBLE",
+				Feedback:          "Output format is incorrect",
+				Remaining:         10,
+				BlockedCount:      0,
+				BlockedTasks:      []string{},
+				InadmissibleCount: 2,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "continue",
 			expectedExitCode:     0,
@@ -147,13 +147,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "INADMISSIBLE at threshold minus one increments and continues",
 			input: VerdictInput{
-				Verdict:            "INADMISSIBLE",
-				Feedback:           "Still wrong format",
-				Remaining:          10,
-				BlockedCount:       0,
-				BlockedTasks:       []string{},
-				InadmissibleCount:  4,
-				MaxInadmissible:    5,
+				Verdict:           "INADMISSIBLE",
+				Feedback:          "Still wrong format",
+				Remaining:         10,
+				BlockedCount:      0,
+				BlockedTasks:      []string{},
+				InadmissibleCount: 4,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "continue",
 			expectedExitCode:     0,
@@ -166,13 +166,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "INADMISSIBLE at threshold exits inadmissible",
 			input: VerdictInput{
-				Verdict:            "INADMISSIBLE",
-				Feedback:           "Exceeded max violations",
-				Remaining:          10,
-				BlockedCount:       0,
-				BlockedTasks:       []string{},
-				InadmissibleCount:  5,
-				MaxInadmissible:    5,
+				Verdict:           "INADMISSIBLE",
+				Feedback:          "Exceeded max violations",
+				Remaining:         10,
+				BlockedCount:      0,
+				BlockedTasks:      []string{},
+				InadmissibleCount: 5,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "exit",
 			expectedExitCode:     exitcode.Inadmissible,
@@ -183,13 +183,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "INADMISSIBLE over threshold exits inadmissible",
 			input: VerdictInput{
-				Verdict:            "INADMISSIBLE",
-				Feedback:           "Too many violations",
-				Remaining:          10,
-				BlockedCount:       0,
-				BlockedTasks:       []string{},
-				InadmissibleCount:  10,
-				MaxInadmissible:    5,
+				Verdict:           "INADMISSIBLE",
+				Feedback:          "Too many violations",
+				Remaining:         10,
+				BlockedCount:      0,
+				BlockedTasks:      []string{},
+				InadmissibleCount: 10,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "exit",
 			expectedExitCode:     exitcode.Inadmissible,
@@ -202,13 +202,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "BLOCKED with some doable tasks continues with doable",
 			input: VerdictInput{
-				Verdict:            "BLOCKED",
-				Feedback:           "Some tasks blocked",
-				Remaining:          10,
-				BlockedCount:       3,
-				BlockedTasks:       []string{"API key needed", "Design pending", "Review required"},
-				InadmissibleCount:  0,
-				MaxInadmissible:    5,
+				Verdict:           "BLOCKED",
+				Feedback:          "Some tasks blocked",
+				Remaining:         10,
+				BlockedCount:      3,
+				BlockedTasks:      []string{"API key needed", "Design pending", "Review required"},
+				InadmissibleCount: 0,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "continue",
 			expectedExitCode:     0,
@@ -219,13 +219,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "BLOCKED with exactly one doable task continues",
 			input: VerdictInput{
-				Verdict:            "BLOCKED",
-				Feedback:           "Nearly all blocked",
-				Remaining:          5,
-				BlockedCount:       4,
-				BlockedTasks:       []string{"T1", "T2", "T3", "T4"},
-				InadmissibleCount:  0,
-				MaxInadmissible:    5,
+				Verdict:           "BLOCKED",
+				Feedback:          "Nearly all blocked",
+				Remaining:         5,
+				BlockedCount:      4,
+				BlockedTasks:      []string{"T1", "T2", "T3", "T4"},
+				InadmissibleCount: 0,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "continue",
 			expectedExitCode:     0,
@@ -238,13 +238,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "BLOCKED with all tasks blocked exits blocked",
 			input: VerdictInput{
-				Verdict:            "BLOCKED",
-				Feedback:           "Everything is blocked",
-				Remaining:          5,
-				BlockedCount:       5,
-				BlockedTasks:       []string{"B1", "B2", "B3", "B4", "B5"},
-				InadmissibleCount:  0,
-				MaxInadmissible:    5,
+				Verdict:           "BLOCKED",
+				Feedback:          "Everything is blocked",
+				Remaining:         5,
+				BlockedCount:      5,
+				BlockedTasks:      []string{"B1", "B2", "B3", "B4", "B5"},
+				InadmissibleCount: 0,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "exit",
 			expectedExitCode:     exitcode.Blocked,
@@ -255,13 +255,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "BLOCKED with more blocked than unchecked exits blocked",
 			input: VerdictInput{
-				Verdict:            "BLOCKED",
-				Feedback:           "Overblocked",
-				Remaining:          3,
-				BlockedCount:       8,
-				BlockedTasks:       []string{"X1", "X2", "X3", "X4", "X5", "X6", "X7", "X8"},
-				InadmissibleCount:  0,
-				MaxInadmissible:    5,
+				Verdict:           "BLOCKED",
+				Feedback:          "Overblocked",
+				Remaining:         3,
+				BlockedCount:      8,
+				BlockedTasks:      []string{"X1", "X2", "X3", "X4", "X5", "X6", "X7", "X8"},
+				InadmissibleCount: 0,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "exit",
 			expectedExitCode:     exitcode.Blocked,
@@ -274,13 +274,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "Unknown verdict falls back to error",
 			input: VerdictInput{
-				Verdict:            "UNKNOWN_STATE",
-				Feedback:           "Something went wrong",
-				Remaining:          5,
-				BlockedCount:       0,
-				BlockedTasks:       []string{},
-				InadmissibleCount:  0,
-				MaxInadmissible:    5,
+				Verdict:           "UNKNOWN_STATE",
+				Feedback:          "Something went wrong",
+				Remaining:         5,
+				BlockedCount:      0,
+				BlockedTasks:      []string{},
+				InadmissibleCount: 0,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "exit",
 			expectedExitCode:     exitcode.Error,
@@ -291,13 +291,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "Empty verdict string falls back to error",
 			input: VerdictInput{
-				Verdict:            "",
-				Feedback:           "Empty verdict",
-				Remaining:          5,
-				BlockedCount:       0,
-				BlockedTasks:       []string{},
-				InadmissibleCount:  0,
-				MaxInadmissible:    5,
+				Verdict:           "",
+				Feedback:          "Empty verdict",
+				Remaining:         5,
+				BlockedCount:      0,
+				BlockedTasks:      []string{},
+				InadmissibleCount: 0,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "exit",
 			expectedExitCode:     exitcode.Error,
@@ -310,13 +310,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "COMPLETE with zero unchecked and zero blocked exits success",
 			input: VerdictInput{
-				Verdict:            "COMPLETE",
-				Feedback:           "Perfect completion",
-				Remaining:          0,
-				BlockedCount:       0,
-				BlockedTasks:       []string{},
-				InadmissibleCount:  0,
-				MaxInadmissible:    5,
+				Verdict:           "COMPLETE",
+				Feedback:          "Perfect completion",
+				Remaining:         0,
+				BlockedCount:      0,
+				BlockedTasks:      []string{},
+				InadmissibleCount: 0,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "exit",
 			expectedExitCode:     exitcode.Success,
@@ -327,13 +327,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "NEEDS_MORE_WORK with empty feedback continues with empty string",
 			input: VerdictInput{
-				Verdict:            "NEEDS_MORE_WORK",
-				Feedback:           "",
-				Remaining:          5,
-				BlockedCount:       0,
-				BlockedTasks:       []string{},
-				InadmissibleCount:  0,
-				MaxInadmissible:    5,
+				Verdict:           "NEEDS_MORE_WORK",
+				Feedback:          "",
+				Remaining:         5,
+				BlockedCount:      0,
+				BlockedTasks:      []string{},
+				InadmissibleCount: 0,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "continue",
 			expectedExitCode:     0,
@@ -344,13 +344,13 @@ func TestProcessVerdict_AllTransitions(t *testing.T) {
 		{
 			name: "INADMISSIBLE with count zero under threshold",
 			input: VerdictInput{
-				Verdict:            "INADMISSIBLE",
-				Feedback:           "First violation",
-				Remaining:          10,
-				BlockedCount:       0,
-				BlockedTasks:       []string{},
-				InadmissibleCount:  0,
-				MaxInadmissible:    5,
+				Verdict:           "INADMISSIBLE",
+				Feedback:          "First violation",
+				Remaining:         10,
+				BlockedCount:      0,
+				BlockedTasks:      []string{},
+				InadmissibleCount: 0,
+				MaxInadmissible:   5,
 			},
 			expectedAction:       "continue",
 			expectedExitCode:     0,
@@ -384,13 +384,13 @@ func TestProcessVerdict_InadmissibleCountProgression(t *testing.T) {
 
 	for i := 1; i <= 5; i++ {
 		input := VerdictInput{
-			Verdict:            "INADMISSIBLE",
-			Feedback:           "Violation",
-			Remaining:          10,
-			BlockedCount:       0,
-			BlockedTasks:       []string{},
-			InadmissibleCount:  count,
-			MaxInadmissible:    maxInadmissible,
+			Verdict:           "INADMISSIBLE",
+			Feedback:          "Violation",
+			Remaining:         10,
+			BlockedCount:      0,
+			BlockedTasks:      []string{},
+			InadmissibleCount: count,
+			MaxInadmissible:   maxInadmissible,
 		}
 
 		result := ProcessVerdict(input)
@@ -432,13 +432,13 @@ func TestProcessVerdict_BlockedCountThresholds(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input := VerdictInput{
-				Verdict:            "BLOCKED",
-				Feedback:           "Test",
-				Remaining:          tt.remaining,
-				BlockedCount:       tt.blockedCount,
-				BlockedTasks:       make([]string, tt.blockedCount),
-				InadmissibleCount:  0,
-				MaxInadmissible:    5,
+				Verdict:           "BLOCKED",
+				Feedback:          "Test",
+				Remaining:         tt.remaining,
+				BlockedCount:      tt.blockedCount,
+				BlockedTasks:      make([]string, tt.blockedCount),
+				InadmissibleCount: 0,
+				MaxInadmissible:   5,
 			}
 
 			result := ProcessVerdict(input)
@@ -465,13 +465,13 @@ func TestProcessVerdict_FeedbackPreservation(t *testing.T) {
 	for _, verdict := range continueVerdicts {
 		t.Run(verdict, func(t *testing.T) {
 			input := VerdictInput{
-				Verdict:            verdict,
-				Feedback:           testFeedback,
-				Remaining:          10,
-				BlockedCount:       1,
-				BlockedTasks:       []string{"Task"},
-				InadmissibleCount:  0,
-				MaxInadmissible:    5,
+				Verdict:           verdict,
+				Feedback:          testFeedback,
+				Remaining:         10,
+				BlockedCount:      1,
+				BlockedTasks:      []string{"Task"},
+				InadmissibleCount: 0,
+				MaxInadmissible:   5,
 			}
 
 			result := ProcessVerdict(input)

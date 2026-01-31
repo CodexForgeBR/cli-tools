@@ -22,9 +22,9 @@ func TestRunPostValidationChain_SuccessFlow(t *testing.T) {
 	}
 
 	config := PostValidationConfig{
-		CrossValRunner:  crossValRunner,
-		FinalPlanRunner: finalPlanRunner,
-		CrossValEnabled: true,
+		CrossValRunner:   crossValRunner,
+		FinalPlanRunner:  finalPlanRunner,
+		CrossValEnabled:  true,
 		FinalPlanEnabled: true,
 	}
 
@@ -47,9 +47,9 @@ func TestRunPostValidationChain_CrossValReject(t *testing.T) {
 	}
 
 	config := PostValidationConfig{
-		CrossValRunner:  crossValRunner,
-		FinalPlanRunner: finalPlanRunner,
-		CrossValEnabled: true,
+		CrossValRunner:   crossValRunner,
+		FinalPlanRunner:  finalPlanRunner,
+		CrossValEnabled:  true,
 		FinalPlanEnabled: true,
 	}
 
@@ -74,9 +74,9 @@ func TestRunPostValidationChain_FinalPlanReject(t *testing.T) {
 	}
 
 	config := PostValidationConfig{
-		CrossValRunner:  crossValRunner,
-		FinalPlanRunner: finalPlanRunner,
-		CrossValEnabled: true,
+		CrossValRunner:   crossValRunner,
+		FinalPlanRunner:  finalPlanRunner,
+		CrossValEnabled:  true,
 		FinalPlanEnabled: true,
 	}
 
@@ -101,9 +101,9 @@ func TestRunPostValidationChain_CrossValDisabled(t *testing.T) {
 	}
 
 	config := PostValidationConfig{
-		CrossValRunner:  crossValRunner,
-		FinalPlanRunner: finalPlanRunner,
-		CrossValEnabled: false,
+		CrossValRunner:   crossValRunner,
+		FinalPlanRunner:  finalPlanRunner,
+		CrossValEnabled:  false,
 		FinalPlanEnabled: true,
 	}
 
@@ -127,9 +127,9 @@ func TestRunPostValidationChain_FinalPlanDisabled(t *testing.T) {
 	}
 
 	config := PostValidationConfig{
-		CrossValRunner:  crossValRunner,
-		FinalPlanRunner: finalPlanRunner,
-		CrossValEnabled: true,
+		CrossValRunner:   crossValRunner,
+		FinalPlanRunner:  finalPlanRunner,
+		CrossValEnabled:  true,
 		FinalPlanEnabled: false,
 	}
 
@@ -153,9 +153,9 @@ func TestRunPostValidationChain_BothDisabled(t *testing.T) {
 	}
 
 	config := PostValidationConfig{
-		CrossValRunner:  crossValRunner,
-		FinalPlanRunner: finalPlanRunner,
-		CrossValEnabled: false,
+		CrossValRunner:   crossValRunner,
+		FinalPlanRunner:  finalPlanRunner,
+		CrossValEnabled:  false,
 		FinalPlanEnabled: false,
 	}
 
@@ -179,9 +179,9 @@ func TestRunPostValidationChain_CrossValEscalate(t *testing.T) {
 	}
 
 	config := PostValidationConfig{
-		CrossValRunner:  crossValRunner,
-		FinalPlanRunner: finalPlanRunner,
-		CrossValEnabled: true,
+		CrossValRunner:   crossValRunner,
+		FinalPlanRunner:  finalPlanRunner,
+		CrossValEnabled:  true,
 		FinalPlanEnabled: true,
 	}
 
@@ -204,9 +204,9 @@ func TestRunPostValidationChain_FinalPlanEscalate(t *testing.T) {
 	}
 
 	config := PostValidationConfig{
-		CrossValRunner:  crossValRunner,
-		FinalPlanRunner: finalPlanRunner,
-		CrossValEnabled: true,
+		CrossValRunner:   crossValRunner,
+		FinalPlanRunner:  finalPlanRunner,
+		CrossValEnabled:  true,
 		FinalPlanEnabled: true,
 	}
 
@@ -230,9 +230,9 @@ func TestRunPostValidationChain_CrossValBlocked(t *testing.T) {
 	}
 
 	config := PostValidationConfig{
-		CrossValRunner:  crossValRunner,
-		FinalPlanRunner: finalPlanRunner,
-		CrossValEnabled: true,
+		CrossValRunner:   crossValRunner,
+		FinalPlanRunner:  finalPlanRunner,
+		CrossValEnabled:  true,
 		FinalPlanEnabled: true,
 	}
 
@@ -255,9 +255,9 @@ func TestRunPostValidationChain_FinalPlanBlocked(t *testing.T) {
 	}
 
 	config := PostValidationConfig{
-		CrossValRunner:  crossValRunner,
-		FinalPlanRunner: finalPlanRunner,
-		CrossValEnabled: true,
+		CrossValRunner:   crossValRunner,
+		FinalPlanRunner:  finalPlanRunner,
+		CrossValEnabled:  true,
 		FinalPlanEnabled: true,
 	}
 
@@ -279,12 +279,12 @@ func TestRunPostValidationChain_CrossValInadmissible(t *testing.T) {
 	}
 
 	config := PostValidationConfig{
-		CrossValRunner:     crossValRunner,
-		FinalPlanRunner:    finalPlanRunner,
-		CrossValEnabled:    true,
-		FinalPlanEnabled:   true,
-		InadmissibleCount:  0,
-		MaxInadmissible:    5,
+		CrossValRunner:    crossValRunner,
+		FinalPlanRunner:   finalPlanRunner,
+		CrossValEnabled:   true,
+		FinalPlanEnabled:  true,
+		InadmissibleCount: 0,
+		MaxInadmissible:   5,
 	}
 
 	ctx := context.Background()
@@ -309,9 +309,9 @@ func TestRunPostValidationChain_ContextCancellation(t *testing.T) {
 	}
 
 	config := PostValidationConfig{
-		CrossValRunner:  crossValRunner,
-		FinalPlanRunner: finalPlanRunner,
-		CrossValEnabled: true,
+		CrossValRunner:   crossValRunner,
+		FinalPlanRunner:  finalPlanRunner,
+		CrossValEnabled:  true,
 		FinalPlanEnabled: true,
 	}
 
@@ -333,9 +333,9 @@ func TestRunPostValidationChain_RunnerErrors(t *testing.T) {
 		}
 
 		config := PostValidationConfig{
-			CrossValRunner:  crossValRunner,
-			FinalPlanRunner: finalPlanRunner,
-			CrossValEnabled: true,
+			CrossValRunner:   crossValRunner,
+			FinalPlanRunner:  finalPlanRunner,
+			CrossValEnabled:  true,
 			FinalPlanEnabled: true,
 		}
 
@@ -357,9 +357,9 @@ func TestRunPostValidationChain_RunnerErrors(t *testing.T) {
 		}
 
 		config := PostValidationConfig{
-			CrossValRunner:  crossValRunner,
-			FinalPlanRunner: finalPlanRunner,
-			CrossValEnabled: true,
+			CrossValRunner:   crossValRunner,
+			FinalPlanRunner:  finalPlanRunner,
+			CrossValEnabled:  true,
 			FinalPlanEnabled: true,
 		}
 
@@ -374,88 +374,88 @@ func TestRunPostValidationChain_RunnerErrors(t *testing.T) {
 // TestRunPostValidationChain_ComplexSequence verifies complex decision sequences
 func TestRunPostValidationChain_ComplexSequence(t *testing.T) {
 	tests := []struct {
-		name                string
-		crossValVerdict     string
-		crossValFeedback    string
-		finalPlanVerdict    string
-		finalPlanFeedback   string
-		crossValEnabled     bool
-		finalPlanEnabled    bool
-		expectedAction      string
-		expectedExitCode    int
-		expectedFeedback    string
-		crossValCallCount   int
-		finalPlanCallCount  int
+		name               string
+		crossValVerdict    string
+		crossValFeedback   string
+		finalPlanVerdict   string
+		finalPlanFeedback  string
+		crossValEnabled    bool
+		finalPlanEnabled   bool
+		expectedAction     string
+		expectedExitCode   int
+		expectedFeedback   string
+		crossValCallCount  int
+		finalPlanCallCount int
 	}{
 		{
-			name:                "both complete",
-			crossValVerdict:     "COMPLETE",
-			crossValFeedback:    "",
-			finalPlanVerdict:    "COMPLETE",
-			finalPlanFeedback:   "",
-			crossValEnabled:     true,
-			finalPlanEnabled:    true,
-			expectedAction:      "success",
-			expectedExitCode:    exitcode.Success,
-			expectedFeedback:    "",
-			crossValCallCount:   1,
-			finalPlanCallCount:  1,
+			name:               "both complete",
+			crossValVerdict:    "COMPLETE",
+			crossValFeedback:   "",
+			finalPlanVerdict:   "COMPLETE",
+			finalPlanFeedback:  "",
+			crossValEnabled:    true,
+			finalPlanEnabled:   true,
+			expectedAction:     "success",
+			expectedExitCode:   exitcode.Success,
+			expectedFeedback:   "",
+			crossValCallCount:  1,
+			finalPlanCallCount: 1,
 		},
 		{
-			name:                "cross-val needs work",
-			crossValVerdict:     "NEEDS_MORE_WORK",
-			crossValFeedback:    "Fix bugs",
-			finalPlanVerdict:    "COMPLETE",
-			finalPlanFeedback:   "",
-			crossValEnabled:     true,
-			finalPlanEnabled:    true,
-			expectedAction:      "continue",
-			expectedExitCode:    0,
-			expectedFeedback:    "Fix bugs",
-			crossValCallCount:   1,
-			finalPlanCallCount:  0,
+			name:               "cross-val needs work",
+			crossValVerdict:    "NEEDS_MORE_WORK",
+			crossValFeedback:   "Fix bugs",
+			finalPlanVerdict:   "COMPLETE",
+			finalPlanFeedback:  "",
+			crossValEnabled:    true,
+			finalPlanEnabled:   true,
+			expectedAction:     "continue",
+			expectedExitCode:   0,
+			expectedFeedback:   "Fix bugs",
+			crossValCallCount:  1,
+			finalPlanCallCount: 0,
 		},
 		{
-			name:                "final-plan needs work",
-			crossValVerdict:     "COMPLETE",
-			crossValFeedback:    "",
-			finalPlanVerdict:    "NEEDS_MORE_WORK",
-			finalPlanFeedback:   "Align with plan",
-			crossValEnabled:     true,
-			finalPlanEnabled:    true,
-			expectedAction:      "continue",
-			expectedExitCode:    0,
-			expectedFeedback:    "Align with plan",
-			crossValCallCount:   1,
-			finalPlanCallCount:  1,
+			name:               "final-plan needs work",
+			crossValVerdict:    "COMPLETE",
+			crossValFeedback:   "",
+			finalPlanVerdict:   "NEEDS_MORE_WORK",
+			finalPlanFeedback:  "Align with plan",
+			crossValEnabled:    true,
+			finalPlanEnabled:   true,
+			expectedAction:     "continue",
+			expectedExitCode:   0,
+			expectedFeedback:   "Align with plan",
+			crossValCallCount:  1,
+			finalPlanCallCount: 1,
 		},
 		{
-			name:                "only cross-val enabled and complete",
-			crossValVerdict:     "COMPLETE",
-			crossValFeedback:    "",
-			finalPlanVerdict:    "COMPLETE",
-			finalPlanFeedback:   "",
-			crossValEnabled:     true,
-			finalPlanEnabled:    false,
-			expectedAction:      "success",
-			expectedExitCode:    exitcode.Success,
-			expectedFeedback:    "",
-			crossValCallCount:   1,
-			finalPlanCallCount:  0,
+			name:               "only cross-val enabled and complete",
+			crossValVerdict:    "COMPLETE",
+			crossValFeedback:   "",
+			finalPlanVerdict:   "COMPLETE",
+			finalPlanFeedback:  "",
+			crossValEnabled:    true,
+			finalPlanEnabled:   false,
+			expectedAction:     "success",
+			expectedExitCode:   exitcode.Success,
+			expectedFeedback:   "",
+			crossValCallCount:  1,
+			finalPlanCallCount: 0,
 		},
 		{
-			name:                "only final-plan enabled and complete",
-			crossValVerdict:     "COMPLETE",
-			crossValFeedback:    "",
-			finalPlanVerdict:    "COMPLETE",
-			finalPlanFeedback:   "",
-			crossValEnabled:     false,
-			finalPlanEnabled:    true,
-			expectedAction:      "success",
-			expectedExitCode:    exitcode.Success,
-			expectedFeedback:    "",
-			crossValCallCount:   0,
-			finalPlanCallCount:  1,
+			name:               "only final-plan enabled and complete",
+			crossValVerdict:    "COMPLETE",
+			crossValFeedback:   "",
+			finalPlanVerdict:   "COMPLETE",
+			finalPlanFeedback:  "",
+			crossValEnabled:    false,
+			finalPlanEnabled:   true,
+			expectedAction:     "success",
+			expectedExitCode:   exitcode.Success,
+			expectedFeedback:   "",
+			crossValCallCount:  0,
+			finalPlanCallCount: 1,
 		},
 	}
 
@@ -470,9 +470,9 @@ func TestRunPostValidationChain_ComplexSequence(t *testing.T) {
 			}
 
 			config := PostValidationConfig{
-				CrossValRunner:  crossValRunner,
-				FinalPlanRunner: finalPlanRunner,
-				CrossValEnabled: tt.crossValEnabled,
+				CrossValRunner:   crossValRunner,
+				FinalPlanRunner:  finalPlanRunner,
+				CrossValEnabled:  tt.crossValEnabled,
 				FinalPlanEnabled: tt.finalPlanEnabled,
 			}
 
@@ -495,7 +495,7 @@ func TestRunPostValidationChain_ComplexSequence(t *testing.T) {
 func makeValidationJSON(verdict string, feedback string) string {
 	data := map[string]interface{}{
 		"RALPH_VALIDATION": map[string]interface{}{
-			"verdict": verdict,
+			"verdict":  verdict,
 			"feedback": feedback,
 		},
 	}
@@ -506,8 +506,8 @@ func makeValidationJSON(verdict string, feedback string) string {
 func makeValidationJSONWithBlocked(verdict string, feedback string, blockedTasks []string) string {
 	data := map[string]interface{}{
 		"RALPH_VALIDATION": map[string]interface{}{
-			"verdict": verdict,
-			"feedback": feedback,
+			"verdict":       verdict,
+			"feedback":      feedback,
 			"blocked_tasks": blockedTasks,
 		},
 	}
@@ -532,8 +532,8 @@ func TestRunPostValidationChain_CrossValReadFileError(t *testing.T) {
 	crossValRunner := &mockDeleteOutputRunner{}
 
 	config := PostValidationConfig{
-		CrossValRunner:  crossValRunner,
-		CrossValEnabled: true,
+		CrossValRunner:   crossValRunner,
+		CrossValEnabled:  true,
 		FinalPlanEnabled: false,
 	}
 
@@ -551,8 +551,8 @@ func TestRunPostValidationChain_CrossValParseError(t *testing.T) {
 	}
 
 	config := PostValidationConfig{
-		CrossValRunner:  crossValRunner,
-		CrossValEnabled: true,
+		CrossValRunner:   crossValRunner,
+		CrossValEnabled:  true,
 		FinalPlanEnabled: false,
 	}
 
@@ -573,8 +573,8 @@ func TestRunPostValidationChain_CrossValNilParsed(t *testing.T) {
 	}
 
 	config := PostValidationConfig{
-		CrossValRunner:  crossValRunner,
-		CrossValEnabled: true,
+		CrossValRunner:   crossValRunner,
+		CrossValEnabled:  true,
 		FinalPlanEnabled: false,
 	}
 
@@ -647,8 +647,8 @@ func TestRunPostValidationChain_CrossValMalformedJSON(t *testing.T) {
 	}
 
 	config := PostValidationConfig{
-		CrossValRunner:  crossValRunner,
-		CrossValEnabled: true,
+		CrossValRunner:   crossValRunner,
+		CrossValEnabled:  true,
 		FinalPlanEnabled: false,
 	}
 
