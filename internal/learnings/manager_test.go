@@ -463,7 +463,7 @@ func TestAppendLearnings_WriteStringError_RLIMIT(t *testing.T) {
 
 	// Restore original limit when done
 	defer func() {
-		syscall.Setrlimit(syscall.RLIMIT_FSIZE, &origRlim)
+		_ = syscall.Setrlimit(syscall.RLIMIT_FSIZE, &origRlim)
 	}()
 
 	tmpDir := t.TempDir()

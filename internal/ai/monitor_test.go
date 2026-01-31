@@ -22,7 +22,7 @@ func TestMonitorProcess_InactivityTimeout(t *testing.T) {
 
 		// Configure very short timeout for testing
 		cfg := MonitorConfig{
-			InactivityTimeout: 1,                    // 1 second
+			InactivityTimeout: 1, // 1 second
 			HardCap:           60,
 			OutputPath:        outputPath,
 			TickInterval:      100 * time.Millisecond, // Fast ticking for tests
@@ -85,7 +85,7 @@ func TestMonitorProcess_InactivityTimeout(t *testing.T) {
 			for i := 0; i < 5; i++ {
 				<-ticker.C
 				content := []byte("update " + time.Now().String())
-				os.WriteFile(outputPath, content, 0644)
+				_ = os.WriteFile(outputPath, content, 0644)
 			}
 		}()
 
@@ -132,7 +132,7 @@ func TestMonitorProcess_HardCapTimeout(t *testing.T) {
 			for {
 				select {
 				case <-ticker.C:
-					os.WriteFile(outputPath, []byte("update "+time.Now().String()), 0644)
+					_ = os.WriteFile(outputPath, []byte("update "+time.Now().String()), 0644)
 				case <-stopWriting:
 					return
 				}
@@ -549,6 +549,6 @@ func TestMonitorProcess_ReadFileError(t *testing.T) {
 		}
 
 		// Restore permissions for cleanup
-		os.Chmod(outputPath, 0644)
+		_ = os.Chmod(outputPath, 0644)
 	})
 }

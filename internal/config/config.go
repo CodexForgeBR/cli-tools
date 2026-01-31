@@ -76,9 +76,9 @@ type Config struct {
 	Verbose bool
 
 	// Notification settings.
-	NotifyWebhook  string
-	NotifyChannel  string
-	NotifyChatID   string
+	NotifyWebhook string
+	NotifyChannel string
+	NotifyChatID  string
 
 	// CLI-only flags (not loaded from config files).
 	ConfigFile  string

@@ -22,6 +22,10 @@ import (
 	"github.com/CodexForgeBR/cli-tools/internal/tasks"
 )
 
+// CommandChecker is a function type that checks tool availability.
+// It takes a list of tool names and returns a map of tool name to availability.
+type CommandChecker func(tools ...string) map[string]bool
+
 // Orchestrator runs the 10-phase state machine.
 type Orchestrator struct {
 	Config          *config.Config
@@ -31,6 +35,7 @@ type Orchestrator struct {
 	CrossRunner     ai.AIRunner
 	FinalPlanRunner ai.AIRunner
 	TasksValRunner  ai.AIRunner
+	CommandChecker  CommandChecker
 	session         *state.SessionState
 	startTime       time.Time
 }
@@ -140,7 +145,11 @@ func (o *Orchestrator) phaseInit() int {
 func (o *Orchestrator) phaseCommandChecks() int {
 	logging.Phase("Checking required commands")
 	// Check availability of primary AI tool
-	avail := ai.CheckAvailability(o.Config.AIProvider)
+	checker := o.CommandChecker
+	if checker == nil {
+		checker = ai.CheckAvailability
+	}
+	avail := checker(o.Config.AIProvider)
 	if !avail[o.Config.AIProvider] {
 		logging.Error(fmt.Sprintf("Required tool not found: %s", o.Config.AIProvider))
 		return exitcode.Error
@@ -247,15 +256,21 @@ func (o *Orchestrator) phaseResumeCheck() int {
 	// Handle --clean flag: remove state directory and start fresh
 	if o.Config.Clean {
 		logging.Info("Cleaning state directory...")
-		os.RemoveAll(o.StateDir)
-		state.InitStateDir(o.StateDir)
+		if err := os.RemoveAll(o.StateDir); err != nil {
+			logging.Warn(fmt.Sprintf("Failed to remove state directory: %v", err))
+		}
+		if err := state.InitStateDir(o.StateDir); err != nil {
+			logging.Warn(fmt.Sprintf("Failed to re-init state dir after clean: %v", err))
+		}
 	}
 
 	// Handle --cancel flag: mark session as cancelled and exit
 	if o.Config.Cancel {
 		if existing, err := state.LoadState(o.StateDir); err == nil {
 			existing.Status = state.StatusCancelled
-			state.SaveState(existing, o.StateDir)
+			if err := state.SaveState(existing, o.StateDir); err != nil {
+				logging.Warn(fmt.Sprintf("Failed to save cancelled state: %v", err))
+			}
 			logging.Info("Session cancelled.")
 		}
 		return exitcode.Success
@@ -330,7 +345,9 @@ func (o *Orchestrator) phaseValidateSetup() int {
 		o.session.Learnings.File = learningsPath
 
 		if _, err := os.Stat(learningsPath); os.IsNotExist(err) {
-			learnings.InitLearnings(learningsPath)
+			if err := learnings.InitLearnings(learningsPath); err != nil {
+				logging.Warn(fmt.Sprintf("Failed to init learnings file: %v", err))
+			}
 		}
 	}
 
@@ -424,13 +441,17 @@ func (o *Orchestrator) phaseScheduleWait(ctx context.Context) int {
 		TargetHuman: target.Format("2006-01-02 15:04:05"),
 	}
 	o.session.Phase = state.PhaseWaitingForSchedule
-	state.SaveState(o.session, o.StateDir)
+	if err := state.SaveState(o.session, o.StateDir); err != nil {
+		logging.Warn(fmt.Sprintf("Failed to save schedule state: %v", err))
+	}
 
 	if err := schedule.WaitUntil(ctx, target); err != nil {
 		if ctx.Err() != nil {
 			banner.PrintInterruptedBanner(o.session.Iteration, o.session.Phase)
 			o.notify(notification.EventInterrupted, exitcode.Interrupted)
-			state.SaveState(o.session, o.StateDir)
+			if saveErr := state.SaveState(o.session, o.StateDir); saveErr != nil {
+				logging.Warn(fmt.Sprintf("Failed to save interrupted state: %v", saveErr))
+			}
 			return exitcode.Interrupted
 		}
 		logging.Error(fmt.Sprintf("Schedule wait failed: %v", err))
@@ -454,13 +475,17 @@ func (o *Orchestrator) phaseIterationLoop(ctx context.Context) int {
 		if ctx.Err() != nil {
 			banner.PrintInterruptedBanner(o.session.Iteration, o.session.Phase)
 			o.notify(notification.EventInterrupted, exitcode.Interrupted)
-			state.SaveState(o.session, o.StateDir)
+			if err := state.SaveState(o.session, o.StateDir); err != nil {
+				logging.Warn(fmt.Sprintf("Failed to save interrupted state: %v", err))
+			}
 			return exitcode.Interrupted
 		}
 
 		// Save state before implementation
 		o.session.Phase = state.PhaseImplementation
-		state.SaveState(o.session, o.StateDir)
+		if err := state.SaveState(o.session, o.StateDir); err != nil {
+			logging.Warn(fmt.Sprintf("Failed to save implementation state: %v", err))
+		}
 
 		// Run implementation
 		isFirst := o.session.Iteration == 1 && o.session.LastFeedback == ""
@@ -485,7 +510,9 @@ func (o *Orchestrator) phaseIterationLoop(ctx context.Context) int {
 
 		// Create iteration directory
 		iterDir := filepath.Join(o.StateDir, fmt.Sprintf("iteration-%03d", o.session.Iteration))
-		os.MkdirAll(iterDir, 0755)
+		if err := os.MkdirAll(iterDir, 0755); err != nil {
+			logging.Warn(fmt.Sprintf("Failed to create iteration dir: %v", err))
+		}
 
 		// Run implementation phase
 		implOutputPath := filepath.Join(iterDir, "implementation-output.txt")
@@ -510,12 +537,16 @@ func (o *Orchestrator) phaseIterationLoop(ctx context.Context) int {
 
 		// Append learnings if any
 		if implResult.Learnings != "" && o.Config.EnableLearnings {
-			learnings.AppendLearnings(o.Config.LearningsFile, o.session.Iteration, implResult.Learnings)
+			if err := learnings.AppendLearnings(o.Config.LearningsFile, o.session.Iteration, implResult.Learnings); err != nil {
+				logging.Warn(fmt.Sprintf("Failed to append learnings: %v", err))
+			}
 		}
 
 		// Run validation
 		o.session.Phase = state.PhaseValidation
-		state.SaveState(o.session, o.StateDir)
+		if err := state.SaveState(o.session, o.StateDir); err != nil {
+			logging.Warn(fmt.Sprintf("Failed to save validation state: %v", err))
+		}
 
 		valPrompt := prompt.BuildValidationPrompt(o.session.TasksFile, implOutputPath)
 		valOutputPath := filepath.Join(iterDir, "validation-output.txt")
@@ -573,7 +604,9 @@ func (o *Orchestrator) phaseIterationLoop(ctx context.Context) int {
 				}
 
 				o.session.Status = state.StatusComplete
-				state.SaveState(o.session, o.StateDir)
+				if err := state.SaveState(o.session, o.StateDir); err != nil {
+					logging.Warn(fmt.Sprintf("Failed to save complete state: %v", err))
+				}
 				banner.PrintCompletionBanner(o.session.Iteration, duration)
 				o.notify(notification.EventCompleted, exitcode.Success)
 				return exitcode.Success
@@ -581,36 +614,48 @@ func (o *Orchestrator) phaseIterationLoop(ctx context.Context) int {
 			case exitcode.Escalate:
 				banner.PrintEscalationBanner(verdictResult.Feedback)
 				o.notify(notification.EventEscalate, exitcode.Escalate)
-				state.SaveState(o.session, o.StateDir)
+				if err := state.SaveState(o.session, o.StateDir); err != nil {
+					logging.Warn(fmt.Sprintf("Failed to save escalate state: %v", err))
+				}
 				return exitcode.Escalate
 
 			case exitcode.Blocked:
 				banner.PrintBlockedBanner(valResult.BlockedTasks)
 				o.notify(notification.EventBlocked, exitcode.Blocked)
-				state.SaveState(o.session, o.StateDir)
+				if err := state.SaveState(o.session, o.StateDir); err != nil {
+					logging.Warn(fmt.Sprintf("Failed to save blocked state: %v", err))
+				}
 				return exitcode.Blocked
 
 			case exitcode.Inadmissible:
 				banner.PrintInadmissibleBanner(o.session.InadmissibleCount, o.session.MaxInadmissible)
 				o.notify(notification.EventInadmissible, exitcode.Inadmissible)
-				state.SaveState(o.session, o.StateDir)
+				if err := state.SaveState(o.session, o.StateDir); err != nil {
+					logging.Warn(fmt.Sprintf("Failed to save inadmissible state: %v", err))
+				}
 				return exitcode.Inadmissible
 
 			default:
-				state.SaveState(o.session, o.StateDir)
+				if err := state.SaveState(o.session, o.StateDir); err != nil {
+					logging.Warn(fmt.Sprintf("Failed to save state: %v", err))
+				}
 				return verdictResult.ExitCode
 			}
 		}
 
 		// Continue: store feedback
 		o.session.LastFeedback = base64.StdEncoding.EncodeToString([]byte(verdictResult.Feedback))
-		state.SaveState(o.session, o.StateDir)
+		if err := state.SaveState(o.session, o.StateDir); err != nil {
+			logging.Warn(fmt.Sprintf("Failed to save feedback state: %v", err))
+		}
 	}
 
 	// Max iterations reached
 	banner.PrintMaxIterationsBanner(o.session.Iteration, o.session.MaxIterations)
 	o.notify(notification.EventMaxIterations, exitcode.MaxIterations)
-	state.SaveState(o.session, o.StateDir)
+	if err := state.SaveState(o.session, o.StateDir); err != nil {
+		logging.Warn(fmt.Sprintf("Failed to save max iterations state: %v", err))
+	}
 	return exitcode.MaxIterations
 }
 
