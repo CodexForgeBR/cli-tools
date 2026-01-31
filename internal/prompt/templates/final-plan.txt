@@ -8,10 +8,37 @@ Your job is to ensure:
 3. The plan is actionable and won't cause confusion
 4. The plan stays in scope
 
+===============================================================================
+VALIDATION CHECKLIST:
+===============================================================================
+
+1. Does the plan address all requirements from spec.md?
+2. Are there any misinterpretations of the spec?
+3. Is the plan adding features not requested in the spec?
+4. Are the tasks clear enough to execute without ambiguity?
+5. Is there a verification/testing strategy?
+6. Are there any obvious gaps or missing steps?
+
+VERDICT OPTIONS:
+
+APPROVE - Plan is ready for execution
+REJECT - Plan has issues that must be fixed (list them)
+
+OUTPUT FORMAT:
+
+```json
+{
+  "RALPH_FINAL_PLAN_VALIDATION": {
+    "verdict": "APPROVE|REJECT",
+    "feedback": "Issues found, or approval confirmation"
+  }
+}
+```
+
 SPEC FILE:
 {{SPEC_FILE}}
 
-TASKS FILE:
+TASKS FILE (if different from plan):
 {{TASKS_FILE}}
 
 PLAN FILE:

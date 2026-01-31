@@ -180,23 +180,27 @@ func runOrchestrator(cmd *cobra.Command, cfg *config.Config) error {
 	var rawImpl, rawVal ai.AIRunner
 	if cfg.AIProvider == model.Claude {
 		rawImpl = &ai.ClaudeRunner{
-			Model:    cfg.ImplModel,
-			MaxTurns: cfg.MaxTurns,
-			Verbose:  cfg.Verbose,
+			Model:             cfg.ImplModel,
+			MaxTurns:          cfg.MaxTurns,
+			Verbose:           cfg.Verbose,
+			InactivityTimeout: cfg.InactivityTimeout,
 		}
 		rawVal = &ai.ClaudeRunner{
-			Model:    cfg.ValModel,
-			MaxTurns: cfg.MaxTurns,
-			Verbose:  cfg.Verbose,
+			Model:             cfg.ValModel,
+			MaxTurns:          cfg.MaxTurns,
+			Verbose:           cfg.Verbose,
+			InactivityTimeout: cfg.InactivityTimeout,
 		}
 	} else {
 		rawImpl = &ai.CodexRunner{
-			Model:   cfg.ImplModel,
-			Verbose: cfg.Verbose,
+			Model:             cfg.ImplModel,
+			Verbose:           cfg.Verbose,
+			InactivityTimeout: cfg.InactivityTimeout,
 		}
 		rawVal = &ai.CodexRunner{
-			Model:   cfg.ValModel,
-			Verbose: cfg.Verbose,
+			Model:             cfg.ValModel,
+			Verbose:           cfg.Verbose,
+			InactivityTimeout: cfg.InactivityTimeout,
 		}
 	}
 	orch.ImplRunner = &ai.RetryRunner{Inner: rawImpl, RetryCfg: retryCfg}
@@ -212,9 +216,9 @@ func runOrchestrator(cmd *cobra.Command, cfg *config.Config) error {
 		if avail[crossAI] {
 			var rawCross ai.AIRunner
 			if crossAI == model.Claude {
-				rawCross = &ai.ClaudeRunner{Model: crossModel, MaxTurns: cfg.MaxTurns, Verbose: cfg.Verbose}
+				rawCross = &ai.ClaudeRunner{Model: crossModel, MaxTurns: cfg.MaxTurns, Verbose: cfg.Verbose, InactivityTimeout: cfg.InactivityTimeout}
 			} else {
-				rawCross = &ai.CodexRunner{Model: crossModel, Verbose: cfg.Verbose}
+				rawCross = &ai.CodexRunner{Model: crossModel, Verbose: cfg.Verbose, InactivityTimeout: cfg.InactivityTimeout}
 			}
 			orch.CrossRunner = &ai.RetryRunner{Inner: rawCross, RetryCfg: retryCfg}
 		} else {
@@ -232,9 +236,9 @@ func runOrchestrator(cmd *cobra.Command, cfg *config.Config) error {
 		if avail[fpAI] {
 			var rawFP ai.AIRunner
 			if fpAI == model.Claude {
-				rawFP = &ai.ClaudeRunner{Model: fpModel, MaxTurns: cfg.MaxTurns, Verbose: cfg.Verbose}
+				rawFP = &ai.ClaudeRunner{Model: fpModel, MaxTurns: cfg.MaxTurns, Verbose: cfg.Verbose, InactivityTimeout: cfg.InactivityTimeout}
 			} else {
-				rawFP = &ai.CodexRunner{Model: fpModel, Verbose: cfg.Verbose}
+				rawFP = &ai.CodexRunner{Model: fpModel, Verbose: cfg.Verbose, InactivityTimeout: cfg.InactivityTimeout}
 			}
 			orch.FinalPlanRunner = &ai.RetryRunner{Inner: rawFP, RetryCfg: retryCfg}
 		}
@@ -247,9 +251,9 @@ func runOrchestrator(cmd *cobra.Command, cfg *config.Config) error {
 	if cfg.OriginalPlanFile != "" || cfg.GithubIssue != "" {
 		var rawTV ai.AIRunner
 		if tvAI == model.Claude {
-			rawTV = &ai.ClaudeRunner{Model: tvModel, MaxTurns: cfg.MaxTurns, Verbose: cfg.Verbose}
+			rawTV = &ai.ClaudeRunner{Model: tvModel, MaxTurns: cfg.MaxTurns, Verbose: cfg.Verbose, InactivityTimeout: cfg.InactivityTimeout}
 		} else {
-			rawTV = &ai.CodexRunner{Model: tvModel, Verbose: cfg.Verbose}
+			rawTV = &ai.CodexRunner{Model: tvModel, Verbose: cfg.Verbose, InactivityTimeout: cfg.InactivityTimeout}
 		}
 		orch.TasksValRunner = &ai.RetryRunner{Inner: rawTV, RetryCfg: retryCfg}
 	}

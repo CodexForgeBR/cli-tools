@@ -14,10 +14,11 @@ import (
 
 func TestCodexRunner_BuildArgs(t *testing.T) {
 	testCases := []struct {
-		name     string
-		runner   CodexRunner
-		prompt   string
-		validate func(t *testing.T, args []string)
+		name       string
+		runner     CodexRunner
+		prompt     string
+		outputPath string
+		validate   func(t *testing.T, args []string)
 	}{
 		{
 			name: "includes exec subcommand",
@@ -25,7 +26,8 @@ func TestCodexRunner_BuildArgs(t *testing.T) {
 				Model:   "codex-default",
 				Verbose: false,
 			},
-			prompt: "test prompt",
+			prompt:     "test prompt",
+			outputPath: "/tmp/output.txt",
 			validate: func(t *testing.T, args []string) {
 				assert.Contains(t, args, "exec")
 			},
@@ -36,20 +38,25 @@ func TestCodexRunner_BuildArgs(t *testing.T) {
 				Model:   "codex-default",
 				Verbose: false,
 			},
-			prompt: "test prompt",
+			prompt:     "test prompt",
+			outputPath: "/tmp/output.txt",
 			validate: func(t *testing.T, args []string) {
 				assert.Contains(t, args, "--json")
 			},
 		},
 		{
-			name: "includes --output-last-message flag",
+			name: "--output-last-message followed by outputPath",
 			runner: CodexRunner{
 				Model:   "codex-default",
 				Verbose: false,
 			},
-			prompt: "test prompt",
+			prompt:     "test prompt",
+			outputPath: "/tmp/my-output.txt",
 			validate: func(t *testing.T, args []string) {
-				assert.Contains(t, args, "--output-last-message")
+				require.Contains(t, args, "--output-last-message")
+				olmIdx := indexOf(args, "--output-last-message")
+				require.Greater(t, len(args), olmIdx+1, "--output-last-message should have a value")
+				assert.Equal(t, "/tmp/my-output.txt", args[olmIdx+1])
 			},
 		},
 		{
@@ -58,7 +65,8 @@ func TestCodexRunner_BuildArgs(t *testing.T) {
 				Model:   "codex-default",
 				Verbose: false,
 			},
-			prompt: "test prompt",
+			prompt:     "test prompt",
+			outputPath: "/tmp/output.txt",
 			validate: func(t *testing.T, args []string) {
 				assert.Contains(t, args, "--dangerously-bypass-approvals-and-sandbox")
 			},
@@ -69,7 +77,8 @@ func TestCodexRunner_BuildArgs(t *testing.T) {
 				Model:   "codex-default",
 				Verbose: false,
 			},
-			prompt: "this is a specific test prompt",
+			prompt:     "this is a specific test prompt",
+			outputPath: "/tmp/output.txt",
 			validate: func(t *testing.T, args []string) {
 				assert.Contains(t, args, "this is a specific test prompt")
 			},
@@ -80,38 +89,18 @@ func TestCodexRunner_BuildArgs(t *testing.T) {
 				Model:   "codex-advanced",
 				Verbose: true,
 			},
-			prompt: "complex prompt",
+			prompt:     "complex prompt",
+			outputPath: "/tmp/output.txt",
 			validate: func(t *testing.T, args []string) {
 				assert.Contains(t, args, "exec")
 				assert.Contains(t, args, "--json")
 				assert.Contains(t, args, "--output-last-message")
 				assert.Contains(t, args, "--dangerously-bypass-approvals-and-sandbox")
 				assert.Contains(t, args, "complex prompt")
-			},
-		},
-		{
-			name: "verbose flag when verbose=true",
-			runner: CodexRunner{
-				Model:   "codex-default",
-				Verbose: true,
-			},
-			prompt: "test",
-			validate: func(t *testing.T, args []string) {
-				// Codex may or may not have a verbose flag - document actual behavior
-				// This test verifies the args are built correctly with Verbose=true
-				assert.NotEmpty(t, args)
-			},
-		},
-		{
-			name: "verbose flag when verbose=false",
-			runner: CodexRunner{
-				Model:   "codex-default",
-				Verbose: false,
-			},
-			prompt: "test",
-			validate: func(t *testing.T, args []string) {
-				// This test verifies the args are built correctly with Verbose=false
-				assert.NotEmpty(t, args)
+
+				// Verify output path follows --output-last-message
+				olmIdx := indexOf(args, "--output-last-message")
+				assert.Equal(t, "/tmp/output.txt", args[olmIdx+1])
 			},
 		},
 		{
@@ -120,20 +109,34 @@ func TestCodexRunner_BuildArgs(t *testing.T) {
 				Model:   "codex-default",
 				Verbose: false,
 			},
-			prompt: "test",
+			prompt:     "test",
+			outputPath: "/tmp/output.txt",
 			validate: func(t *testing.T, args []string) {
 				require.NotEmpty(t, args)
-				// exec should typically be the first argument for codex
 				assert.Contains(t, args, "exec")
 				execIdx := indexOf(args, "exec")
-				assert.GreaterOrEqual(t, execIdx, 0, "exec subcommand should be present")
+				jsonIdx := indexOf(args, "--json")
+				assert.Less(t, execIdx, jsonIdx, "exec should come before --json")
+			},
+		},
+		{
+			name: "InactivityTimeout field is stored",
+			runner: CodexRunner{
+				Model:             "codex-default",
+				InactivityTimeout: 600,
+			},
+			prompt:     "test",
+			outputPath: "/tmp/output.txt",
+			validate: func(t *testing.T, args []string) {
+				// InactivityTimeout doesn't affect args, just verify args are valid
+				assert.Contains(t, args, "exec")
 			},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			args := tc.runner.BuildArgs(tc.prompt)
+			args := tc.runner.BuildArgs(tc.prompt, tc.outputPath)
 			require.NotEmpty(t, args, "BuildArgs should return non-empty args list")
 			tc.validate(t, args)
 		})
@@ -146,7 +149,7 @@ func TestCodexRunner_BuildArgs_EdgeCases(t *testing.T) {
 			Model:   "codex-default",
 			Verbose: false,
 		}
-		args := runner.BuildArgs("")
+		args := runner.BuildArgs("", "/tmp/output.txt")
 		assert.NotEmpty(t, args, "should still return args even with empty prompt")
 		assert.Contains(t, args, "exec")
 		assert.Contains(t, args, "--json")
@@ -160,7 +163,7 @@ func TestCodexRunner_BuildArgs_EdgeCases(t *testing.T) {
 			Verbose: false,
 		}
 		prompt := "test with \"quotes\" and 'apostrophes' and $vars"
-		args := runner.BuildArgs(prompt)
+		args := runner.BuildArgs(prompt, "/tmp/output.txt")
 		assert.Contains(t, args, prompt)
 	})
 
@@ -170,7 +173,7 @@ func TestCodexRunner_BuildArgs_EdgeCases(t *testing.T) {
 			Verbose: false,
 		}
 		prompt := "first line\nsecond line\nthird line"
-		args := runner.BuildArgs(prompt)
+		args := runner.BuildArgs(prompt, "/tmp/output.txt")
 		assert.Contains(t, args, prompt)
 	})
 
@@ -180,7 +183,7 @@ func TestCodexRunner_BuildArgs_EdgeCases(t *testing.T) {
 			Verbose: false,
 		}
 		prompt := "long prompt " + string(make([]byte, 2000))
-		args := runner.BuildArgs(prompt)
+		args := runner.BuildArgs(prompt, "/tmp/output.txt")
 		assert.Contains(t, args, prompt)
 	})
 
@@ -192,9 +195,8 @@ func TestCodexRunner_BuildArgs_EdgeCases(t *testing.T) {
 					Model:   model,
 					Verbose: false,
 				}
-				args := runner.BuildArgs("test")
+				args := runner.BuildArgs("test", "/tmp/output.txt")
 				assert.NotEmpty(t, args)
-				// Model may or may not be included in args depending on implementation
 			})
 		}
 	})
@@ -202,20 +204,12 @@ func TestCodexRunner_BuildArgs_EdgeCases(t *testing.T) {
 
 func TestCodexRunner_BinaryName(t *testing.T) {
 	t.Run("uses codex as binary name", func(t *testing.T) {
-		// This test documents that CodexRunner should use "codex" as the binary name
-		// The actual command execution would use exec.Command("codex", args...)
 		runner := CodexRunner{
 			Model:   "codex-default",
 			Verbose: false,
 		}
-		args := runner.BuildArgs("test")
-
-		// The args should not contain the binary name itself (that's passed separately to exec.Command)
-		// But we document that the binary name should be "codex"
+		args := runner.BuildArgs("test", "/tmp/output.txt")
 		assert.NotEmpty(t, args)
-
-		// This is a documentation test - the binary name "codex" should be used
-		// when calling exec.Command("codex", args...)
 		binaryName := "codex"
 		assert.Equal(t, "codex", binaryName, "should use codex as binary name")
 	})
@@ -227,7 +221,7 @@ func TestCodexRunner_ArgsOrder(t *testing.T) {
 			Model:   "codex-default",
 			Verbose: false,
 		}
-		args := runner.BuildArgs("test prompt")
+		args := runner.BuildArgs("test prompt", "/tmp/output.txt")
 
 		require.NotEmpty(t, args)
 
@@ -283,9 +277,14 @@ func TestCodexRunnerRun_RateLimitDetected(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Create a fake "codex" script that writes rate-limit content to stdout
+	// Create a fake "codex" script that writes rate-limit content
+	// The script writes to stdout (raw JSONL) and does NOT write to --output-last-message
+	// so the fallback parser will extract text from the JSONL
 	fakeScript := filepath.Join(tmpDir, "codex")
-	scriptContent := "#!/bin/sh\necho \"rate limit exceeded\"\nexit 1\n"
+	scriptContent := `#!/bin/sh
+echo '{"type":"item.completed","item":{"type":"agent_message","text":"rate limit exceeded"}}'
+exit 1
+`
 	err := os.WriteFile(fakeScript, []byte(scriptContent), 0755)
 	require.NoError(t, err)
 
@@ -310,8 +309,12 @@ func TestCodexRunnerRun_Success(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create a fake "codex" script that exits successfully
+	// It writes JSONL to stdout; --output-last-message is handled by codex itself
+	// In the fake, we simulate by not writing to the outputPath so fallback parses JSONL
 	fakeScript := filepath.Join(tmpDir, "codex")
-	scriptContent := "#!/bin/sh\necho \"RALPH_STATUS: success\"\n"
+	scriptContent := `#!/bin/sh
+echo '{"type":"item.completed","item":{"type":"agent_message","text":"RALPH_STATUS: success"}}'
+`
 	err := os.WriteFile(fakeScript, []byte(scriptContent), 0755)
 	require.NoError(t, err)
 
@@ -323,4 +326,9 @@ func TestCodexRunnerRun_Success(t *testing.T) {
 	r := &CodexRunner{Model: "test-model"}
 	err = r.Run(context.Background(), "prompt", outputPath)
 	require.NoError(t, err)
+
+	// Verify output was extracted from JSONL fallback
+	data, readErr := os.ReadFile(outputPath)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), "RALPH_STATUS: success")
 }

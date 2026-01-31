@@ -591,14 +591,23 @@ func (o *Orchestrator) phaseIterationLoop(ctx context.Context) int {
 			duration := int(time.Since(o.startTime).Seconds())
 			switch verdictResult.ExitCode {
 			case exitcode.Success:
+				// Compute specFile for post-validation chain
+				specFile := o.Config.OriginalPlanFile
+				if specFile == "" && o.Config.GithubIssue != "" {
+					specFile = filepath.Join(o.StateDir, "github-issue.md")
+				}
+
 				// Run post-validation chain
 				postResult := RunPostValidationChain(ctx, PostValidationConfig{
-					CrossValRunner:    o.CrossRunner,
-					FinalPlanRunner:   o.FinalPlanRunner,
-					CrossValEnabled:   o.Config.CrossValidate && o.CrossRunner != nil,
-					FinalPlanEnabled:  o.FinalPlanRunner != nil,
-					InadmissibleCount: o.session.InadmissibleCount,
-					MaxInadmissible:   o.session.MaxInadmissible,
+					CrossValRunner:   o.CrossRunner,
+					FinalPlanRunner:  o.FinalPlanRunner,
+					CrossValEnabled:  o.Config.CrossValidate && o.CrossRunner != nil,
+					FinalPlanEnabled: o.FinalPlanRunner != nil,
+					TasksFile:        o.session.TasksFile,
+					ImplOutputFile:   implOutputPath,
+					ValOutputFile:    valOutputPath,
+					SpecFile:         specFile,
+					PlanFile:         o.Config.OriginalPlanFile,
 				})
 
 				if postResult.Action == "continue" {

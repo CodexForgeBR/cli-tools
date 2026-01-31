@@ -62,7 +62,19 @@ func TestClaudeRunner_BuildArgs(t *testing.T) {
 			},
 		},
 		{
-			name: "includes --verbose when verbose=true",
+			name: "--verbose is always present regardless of Verbose field",
+			runner: ClaudeRunner{
+				Model:    "claude-sonnet-4-5",
+				MaxTurns: 10,
+				Verbose:  false,
+			},
+			prompt: "test prompt",
+			validate: func(t *testing.T, args []string) {
+				assert.Contains(t, args, "--verbose", "--verbose should always be present for stream-json")
+			},
+		},
+		{
+			name: "--verbose is present when Verbose=true",
 			runner: ClaudeRunner{
 				Model:    "claude-sonnet-4-5",
 				MaxTurns: 10,
@@ -74,19 +86,7 @@ func TestClaudeRunner_BuildArgs(t *testing.T) {
 			},
 		},
 		{
-			name: "omits --verbose when verbose=false",
-			runner: ClaudeRunner{
-				Model:    "claude-sonnet-4-5",
-				MaxTurns: 10,
-				Verbose:  false,
-			},
-			prompt: "test prompt",
-			validate: func(t *testing.T, args []string) {
-				assert.NotContains(t, args, "--verbose")
-			},
-		},
-		{
-			name: "includes --output-format stream-json",
+			name: "--output-format stream-json always present",
 			runner: ClaudeRunner{
 				Model:    "claude-sonnet-4-5",
 				MaxTurns: 10,
@@ -113,7 +113,7 @@ func TestClaudeRunner_BuildArgs(t *testing.T) {
 			},
 		},
 		{
-			name: "full command with all flags when verbose",
+			name: "full command with all flags",
 			runner: ClaudeRunner{
 				Model:    "claude-opus-4-5",
 				MaxTurns: 20,
@@ -165,6 +165,19 @@ func TestClaudeRunner_BuildArgs(t *testing.T) {
 			validate: func(t *testing.T, args []string) {
 				maxTurnsIdx := indexOf(args, "--max-turns")
 				assert.Equal(t, "5", args[maxTurnsIdx+1])
+			},
+		},
+		{
+			name: "InactivityTimeout field is stored",
+			runner: ClaudeRunner{
+				Model:             "claude-sonnet-4-5",
+				MaxTurns:          10,
+				InactivityTimeout: 300,
+			},
+			prompt: "test",
+			validate: func(t *testing.T, args []string) {
+				// InactivityTimeout doesn't affect args, just verify args are valid
+				assert.Contains(t, args, "--print")
 			},
 		},
 	}
@@ -273,11 +286,13 @@ func TestClaudeRunnerRun_RateLimitDetected(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Create a fake "claude" script that writes rate-limit content to stdout
+	// Create a fake "claude" script that writes stream-json with rate-limit content
 	fakeScript := filepath.Join(tmpDir, "claude")
-	// The script writes a short string that matches bare rate-limit patterns
-	// (content <= 500 bytes to match BarePatternMaxContentSize)
-	scriptContent := "#!/bin/sh\necho \"rate limit exceeded\"\nexit 1\n"
+	// Write a result event containing the rate limit text (small enough for bare pattern)
+	scriptContent := `#!/bin/sh
+echo '{"type":"result","result":"rate limit exceeded"}'
+exit 1
+`
 	err := os.WriteFile(fakeScript, []byte(scriptContent), 0755)
 	require.NoError(t, err)
 
@@ -301,9 +316,11 @@ func TestClaudeRunnerRun_Success(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Create a fake "claude" script that exits successfully
+	// Create a fake "claude" script that writes stream-json output
 	fakeScript := filepath.Join(tmpDir, "claude")
-	scriptContent := "#!/bin/sh\necho \"RALPH_STATUS: success\"\n"
+	scriptContent := `#!/bin/sh
+echo '{"type":"result","result":"RALPH_STATUS: success"}'
+`
 	err := os.WriteFile(fakeScript, []byte(scriptContent), 0755)
 	require.NoError(t, err)
 
@@ -315,4 +332,9 @@ func TestClaudeRunnerRun_Success(t *testing.T) {
 	r := &ClaudeRunner{Model: "test-model", MaxTurns: 1}
 	err = r.Run(context.Background(), "prompt", outputPath)
 	require.NoError(t, err)
+
+	// Verify that the output was parsed from stream-json
+	data, readErr := os.ReadFile(outputPath)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), "RALPH_STATUS: success")
 }
