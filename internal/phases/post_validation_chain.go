@@ -2,6 +2,7 @@ package phases
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/CodexForgeBR/cli-tools/internal/ai"
@@ -23,6 +24,11 @@ type PostValidationConfig struct {
 	ValOutputFile  string
 	SpecFile       string // For final-plan validation
 	PlanFile       string // For final-plan validation
+	// AI/model names for logging
+	CrossAI        string
+	CrossModel     string
+	FinalPlanAI    string
+	FinalPlanModel string
 }
 
 // PostValidationResult contains the outcome of the post-validation chain.
@@ -69,6 +75,12 @@ func RunPostValidationChain(ctx context.Context, cfg PostValidationConfig) PostV
 
 func runCrossValidation(ctx context.Context, cfg PostValidationConfig) PostValidationResult {
 	logging.Phase("Cross-validation phase")
+	if cfg.CrossAI != "" {
+		logging.Info(fmt.Sprintf("AI CLI: %s", cfg.CrossAI))
+	}
+	if cfg.CrossModel != "" {
+		logging.Info(fmt.Sprintf("Model: %s", cfg.CrossModel))
+	}
 
 	// Check for context cancellation
 	if ctx.Err() != nil {
@@ -102,6 +114,11 @@ func runCrossValidation(ctx context.Context, cfg PostValidationConfig) PostValid
 		}
 	}
 
+	// Dump cross-validation output to stderr for visibility
+	if data, readErr := os.ReadFile(outputPath); readErr == nil && len(data) > 0 {
+		fmt.Fprintln(os.Stderr, string(data))
+	}
+
 	// Parse cross-validation result
 	output, err := os.ReadFile(outputPath)
 	if err != nil {
@@ -129,6 +146,7 @@ func runCrossValidation(ctx context.Context, cfg PostValidationConfig) PostValid
 	// Handle cross-validation verdicts directly (CONFIRMED/REJECTED)
 	switch parsed.Verdict {
 	case "CONFIRMED":
+		logging.Success("Cross-validation phase completed")
 		return PostValidationResult{
 			Action:   "success",
 			ExitCode: exitcode.Success,
@@ -150,6 +168,12 @@ func runCrossValidation(ctx context.Context, cfg PostValidationConfig) PostValid
 
 func runFinalPlanValidation(ctx context.Context, cfg PostValidationConfig) PostValidationResult {
 	logging.Phase("Final-plan validation phase")
+	if cfg.FinalPlanAI != "" {
+		logging.Info(fmt.Sprintf("AI CLI: %s", cfg.FinalPlanAI))
+	}
+	if cfg.FinalPlanModel != "" {
+		logging.Info(fmt.Sprintf("Model: %s", cfg.FinalPlanModel))
+	}
 
 	// Check for context cancellation
 	if ctx.Err() != nil {
@@ -183,6 +207,11 @@ func runFinalPlanValidation(ctx context.Context, cfg PostValidationConfig) PostV
 		}
 	}
 
+	// Dump final-plan output to stderr for visibility
+	if data, readErr := os.ReadFile(outputPath); readErr == nil && len(data) > 0 {
+		fmt.Fprintln(os.Stderr, string(data))
+	}
+
 	// Parse final-plan result
 	output, err := os.ReadFile(outputPath)
 	if err != nil {
@@ -210,6 +239,7 @@ func runFinalPlanValidation(ctx context.Context, cfg PostValidationConfig) PostV
 	// Handle final-plan verdicts (parser maps APPROVE→CONFIRMED, REJECT→NOT_IMPLEMENTED)
 	switch parsed.Verdict {
 	case "CONFIRMED":
+		logging.Success("Final-plan validation phase completed")
 		return PostValidationResult{
 			Action:   "success",
 			ExitCode: exitcode.Success,

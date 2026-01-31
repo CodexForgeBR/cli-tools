@@ -14,6 +14,7 @@ import (
 	"github.com/CodexForgeBR/cli-tools/internal/logging"
 	"github.com/CodexForgeBR/cli-tools/internal/model"
 	"github.com/CodexForgeBR/cli-tools/internal/phases"
+	"github.com/CodexForgeBR/cli-tools/internal/ratelimit"
 	sighandler "github.com/CodexForgeBR/cli-tools/internal/signal"
 )
 
@@ -178,6 +179,16 @@ func runOrchestrator(cmd *cobra.Command, cfg *config.Config) error {
 	retryCfg := ai.RetryConfig{
 		MaxRetries: cfg.MaxClaudeRetry,
 		BaseDelay:  5,
+		OnRetry: func(attempt int, delay int) {
+			logging.Warn(fmt.Sprintf("Attempt %d failed. Retrying in %ds...", attempt+1, delay))
+		},
+		OnRateLimit: func(info *ratelimit.RateLimitInfo) {
+			if info != nil && info.Parseable {
+				logging.Warn(fmt.Sprintf("Rate limit detected (resets at %s)", info.ResetHuman))
+			} else {
+				logging.Warn("Rate limit detected (reset time unknown)")
+			}
+		},
 	}
 
 	// Setup implementation and validation runners
