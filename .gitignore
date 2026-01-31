@@ -21,4 +21,4 @@ specs/
 dist/
 ralph-loop
 *.exe
-coverage.out
+*.out
