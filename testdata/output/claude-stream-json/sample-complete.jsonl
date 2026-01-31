@@ -1,0 +1,3 @@
+{"type":"assistant","message":{"content":[{"type":"text","text":"I'll implement the changes now."},{"type":"tool_use","name":"Write","input":{"file_path":"/tmp/test.go","content":"package main"}}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Implementation complete. All tasks done.\n\n```json\n{\"RALPH_STATUS\":{\"completed_tasks\":[\"T001\",\"T002\"],\"blocked_tasks\":[],\"notes\":\"All tasks completed\"}}\n```\n\nRALPH_LEARNINGS:\n- Pattern: Use table-driven tests in Go\n- Gotcha: Remember to handle nil maps"}]}}
+{"type":"result","result":"Implementation complete with 2 tasks done."}

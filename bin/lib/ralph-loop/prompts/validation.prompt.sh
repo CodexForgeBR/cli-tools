@@ -5,9 +5,9 @@
 # Generate validation prompt
 _generate_validation_prompt() {
     local tasks_file="$1"
-    local impl_output="$2"
+    local impl_output_file="$2"
     
-    cat << 'VAL_END'
+    cat << VAL_END
 You are the VALIDATOR in a dual-model validation loop.
 
 Your job is to catch the implementer's lies, mistakes, and scope changes.
@@ -147,7 +147,7 @@ VERDICT OPTIONS:
 
 OUTPUT FORMAT:
 
-```json
+\`\`\`json
 {
   "RALPH_VALIDATION": {
     "verdict": "COMPLETE|NEEDS_MORE_WORK|INADMISSIBLE|ESCALATE|BLOCKED",
@@ -157,10 +157,10 @@ OUTPUT FORMAT:
     "inadmissible_practices": ["List of inadmissible practices found, if any"]
   }
 }
-```
+\`\`\`
 
-IMPLEMENTATION OUTPUT TO VALIDATE:
-$impl_output
+IMPLEMENTATION OUTPUT FILE (read this file to validate what the implementer did):
+$impl_output_file
 
 TASKS FILE TO CHECK AGAINST:
 $tasks_file

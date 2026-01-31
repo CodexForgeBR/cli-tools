@@ -47,6 +47,8 @@ run_claude_with_timeout() {
     local max_retries=$MAX_CLAUDE_RETRY
     local retry_delay=$start_delay
     local attempt=$start_attempt
+    local rate_limit_waits=0
+    local max_rate_limit_waits=3
 
     # Create raw JSON file for stream output (in same directory as output file)
     local raw_json_file="${output_file%.txt}.stream.json"
@@ -133,16 +135,54 @@ run_claude_with_timeout() {
             # Extract text from stream-json and write to output file
             if extract_text_from_stream_json "$raw_json_file" "$output_file"; then
                 log_info "Successfully extracted text from stream-json output" >&2
+
+                # Check for rate limit in successful output
+                if check_rate_limit "$output_file"; then
+                    log_warn "Rate limit detected in AI output" >&2
+                    rate_limit_waits=$((rate_limit_waits + 1))
+                    if [[ $rate_limit_waits -ge $max_rate_limit_waits ]]; then
+                        log_error "Rate limit hit $rate_limit_waits consecutive times, giving up" >&2
+                        return 1
+                    fi
+                    wait_for_rate_limit_reset "$RATE_LIMIT_RESET_EPOCH" "$RATE_LIMIT_RESET_HUMAN" "$RATE_LIMIT_RESET_TZ"
+                    continue  # retry same attempt
+                fi
+
                 return 0
             else
                 log_warn "Failed to extract text from stream-json, using raw output" >&2
                 # Fallback: copy raw json as output (caller will handle parsing)
                 cp "$raw_json_file" "$output_file"
+
+                # Check for rate limit in fallback output
+                if check_rate_limit "$output_file"; then
+                    log_warn "Rate limit detected in AI output" >&2
+                    rate_limit_waits=$((rate_limit_waits + 1))
+                    if [[ $rate_limit_waits -ge $max_rate_limit_waits ]]; then
+                        log_error "Rate limit hit $rate_limit_waits consecutive times, giving up" >&2
+                        return 1
+                    fi
+                    wait_for_rate_limit_reset "$RATE_LIMIT_RESET_EPOCH" "$RATE_LIMIT_RESET_HUMAN" "$RATE_LIMIT_RESET_TZ"
+                    continue  # retry same attempt
+                fi
+
                 return 0
             fi
         fi
 
         # No result received - this is a failure, retry
+        # Check for rate limit in raw json file before backing off
+        if check_rate_limit "$raw_json_file"; then
+            log_warn "Rate limit detected in failed attempt output" >&2
+            rate_limit_waits=$((rate_limit_waits + 1))
+            if [[ $rate_limit_waits -ge $max_rate_limit_waits ]]; then
+                log_error "Rate limit hit $rate_limit_waits consecutive times, giving up" >&2
+                return 1
+            fi
+            wait_for_rate_limit_reset "$RATE_LIMIT_RESET_EPOCH" "$RATE_LIMIT_RESET_HUMAN" "$RATE_LIMIT_RESET_TZ"
+            continue  # retry same attempt
+        fi
+
         if [[ $attempt -lt $max_retries ]]; then
             # Update global retry state for persistence before sleeping
             CURRENT_RETRY_ATTEMPT=$((attempt + 1))
@@ -177,6 +217,8 @@ run_codex_with_timeout() {
     local max_retries=$MAX_CLAUDE_RETRY
     local retry_delay=$start_delay
     local attempt=$start_attempt
+    local rate_limit_waits=0
+    local max_rate_limit_waits=3
 
     local raw_json_file="${output_file%.txt}.jsonl"
 
@@ -222,12 +264,48 @@ run_codex_with_timeout() {
         wait "$codex_pid" 2>/dev/null || true
 
         if [[ -s "$output_file" ]]; then
+            # Check for rate limit in output file
+            if check_rate_limit "$output_file"; then
+                log_warn "Rate limit detected in AI output" >&2
+                rate_limit_waits=$((rate_limit_waits + 1))
+                if [[ $rate_limit_waits -ge $max_rate_limit_waits ]]; then
+                    log_error "Rate limit hit $rate_limit_waits consecutive times, giving up" >&2
+                    return 1
+                fi
+                wait_for_rate_limit_reset "$RATE_LIMIT_RESET_EPOCH" "$RATE_LIMIT_RESET_HUMAN" "$RATE_LIMIT_RESET_TZ"
+                continue  # retry same attempt
+            fi
             return 0
         fi
 
         if extract_text_from_codex_jsonl "$raw_json_file" "$output_file"; then
             log_info "Successfully extracted text from codex json output" >&2
+
+            # Check for rate limit in extracted output
+            if check_rate_limit "$output_file"; then
+                log_warn "Rate limit detected in AI output" >&2
+                rate_limit_waits=$((rate_limit_waits + 1))
+                if [[ $rate_limit_waits -ge $max_rate_limit_waits ]]; then
+                    log_error "Rate limit hit $rate_limit_waits consecutive times, giving up" >&2
+                    return 1
+                fi
+                wait_for_rate_limit_reset "$RATE_LIMIT_RESET_EPOCH" "$RATE_LIMIT_RESET_HUMAN" "$RATE_LIMIT_RESET_TZ"
+                continue  # retry same attempt
+            fi
+
             return 0
+        fi
+
+        # Check for rate limit in raw json file before backing off
+        if check_rate_limit "$raw_json_file"; then
+            log_warn "Rate limit detected in failed attempt output" >&2
+            rate_limit_waits=$((rate_limit_waits + 1))
+            if [[ $rate_limit_waits -ge $max_rate_limit_waits ]]; then
+                log_error "Rate limit hit $rate_limit_waits consecutive times, giving up" >&2
+                return 1
+            fi
+            wait_for_rate_limit_reset "$RATE_LIMIT_RESET_EPOCH" "$RATE_LIMIT_RESET_HUMAN" "$RATE_LIMIT_RESET_TZ"
+            continue  # retry same attempt
         fi
 
         if [[ $attempt -lt $max_retries ]]; then

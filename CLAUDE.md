@@ -163,3 +163,10 @@ See the README.md in this repository for complete setup instructions including:
 - Cloning the repository
 - Adding to PATH
 - Creating the global CLAUDE.md symlink
+
+## Active Technologies
+- Go 1.22+ + `github.com/spf13/cobra` (CLI framework), `github.com/fatih/color` (ANSI terminal colors), `github.com/stretchr/testify` (test assertions). All else is stdlib. (001-ralph-loop-go-cli)
+- Filesystem — JSON state files in `.ralph-loop/`, config files in `~/.config/ralph-loop/` and `.ralph-loop/config`, markdown learnings file. (001-ralph-loop-go-cli)
+
+## Recent Changes
+- 001-ralph-loop-go-cli: Added Go 1.22+ + `github.com/spf13/cobra` (CLI framework), `github.com/fatih/color` (ANSI terminal colors), `github.com/stretchr/testify` (test assertions). All else is stdlib.

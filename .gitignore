@@ -16,3 +16,9 @@
 
 # Spec-driven development working directories
 specs/
+
+# Go build artifacts
+dist/
+ralph-loop
+*.exe
+coverage.out

@@ -1,0 +1,13 @@
+EVIDENCE CAPTURE FOR NON-FILE TASKS:
+For tasks that don't just create/modify files, capture evidence in RALPH_STATUS.notes:
+
+| Task Type | What to Record |
+|-----------|----------------|
+| Deploy X | Version deployed (e.g., "BCL 2026.1.23.4-servidor deployed") |
+| Run tests | Results (e.g., "4238 passed, 3 skipped, 0 failed") |
+| Build X | Result (e.g., "Build succeeded: 0 errors, 0 warnings") |
+| Verify X | What you verified (e.g., "Packages exist on BaGet: curl confirmed") |
+| Run/Execute X | Outcome (e.g., "Quickstart scenarios: all error messages match") |
+| Playwright MCP | Screenshot path OR what was verified (e.g., "Navigated to localhost:4200/banks, verified no Back button, screenshot at validation/us1-banks.png") |
+
+This evidence helps validation verify your work without re-running everything.

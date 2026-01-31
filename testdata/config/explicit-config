@@ -1,0 +1,6 @@
+# Explicit config file for testing
+AI_CLI=codex
+IMPL_MODEL=default
+VAL_MODEL=default
+MAX_ITERATIONS=10
+INACTIVITY_TIMEOUT=900

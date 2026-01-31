@@ -7,7 +7,7 @@ _generate_tasks_validation_prompt() {
     local spec_file="$1"
     local tasks_file="$2"
     
-    cat << 'TASKS_VAL_END'
+    cat << TASKS_VAL_END
 You are validating that a tasks.md file correctly implements a spec.md file.
 
 Your job is to ensure the tasks are:
@@ -24,24 +24,24 @@ VALIDATION RULES:
    - Read the spec file completely
    - Identify all functional requirements
    - Check if tasks.md covers each requirement
-   - Missing requirements → NEEDS_FIXES
+   - Missing requirements → INVALID
 
 2. ACCURACY CHECK:
    - Do tasks correctly interpret the spec?
    - Are there misunderstandings or scope changes?
    - Do tasks add features not in the spec?
-   - Inaccurate tasks → NEEDS_FIXES
+   - Inaccurate tasks → INVALID
 
 3. ACTIONABILITY CHECK:
    - Is each task clear and specific?
    - Can someone implement it without guessing?
    - Are test criteria provided where needed?
-   - Vague tasks → NEEDS_FIXES
+   - Vague tasks → INVALID
 
 4. SCOPE CONTROL:
    - Do tasks stay within the spec boundaries?
    - Are there "bonus" features not requested?
-   - Out-of-scope additions → NEEDS_FIXES
+   - Out-of-scope additions → INVALID
 
 ═══════════════════════════════════════════════════════════════════════════════
 COMMON ISSUES TO CATCH:
@@ -93,15 +93,15 @@ BAD TASKS:
 VERDICT OPTIONS:
 ═══════════════════════════════════════════════════════════════════════════════
 
-PASS - Tasks correctly implement the spec
-NEEDS_FIXES - Issues found (list them specifically)
+VALID - Tasks correctly implement the spec
+INVALID - Issues found (list them specifically)
 
 OUTPUT FORMAT:
 
-```json
+\`\`\`json
 {
   "RALPH_TASKS_VALIDATION": {
-    "verdict": "PASS|NEEDS_FIXES",
+    "verdict": "VALID|INVALID",
     "feedback": "Specific issues and how to fix them",
     "missing_requirements": ["Requirements from spec not covered in tasks"],
     "out_of_scope_tasks": ["Tasks that add things not in spec"],
@@ -109,7 +109,7 @@ OUTPUT FORMAT:
     "quality_score": "Brief overall assessment"
   }
 }
-```
+\`\`\`
 
 SPEC FILE TO VALIDATE AGAINST:
 $spec_file

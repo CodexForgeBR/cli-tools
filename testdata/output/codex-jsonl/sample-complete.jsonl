@@ -1,0 +1,3 @@
+{"type":"item.completed","item":{"type":"agent_message","text":"Starting implementation of the requested tasks."}}
+{"type":"item.completed","item":{"type":"function_call","name":"write_file","arguments":"{\"path\":\"/tmp/test.go\",\"content\":\"package main\"}"}}
+{"type":"item.completed","item":{"type":"assistant_message","text":"All tasks completed successfully.\n\n```json\n{\"RALPH_STATUS\":{\"completed_tasks\":[\"T001\"],\"blocked_tasks\":[],\"notes\":\"Done\"}}\n```\n\nRALPH_LEARNINGS:\n- Pattern: Use interfaces for testability"}}

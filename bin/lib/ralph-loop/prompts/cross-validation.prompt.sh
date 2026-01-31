@@ -5,10 +5,10 @@
 # Generate cross-validation prompt
 _generate_cross_validation_prompt() {
     local tasks_file="$1"
-    local impl_output="$2"
-    local val_output="$3"
+    local val_output_file="$2"
+    local impl_output_file="$3"
     
-    cat << 'CROSS_VAL_END'
+    cat << CROSS_VAL_END
 You are the CROSS-VALIDATOR in a dual-model validation loop.
 
 Your job is to provide a SECOND OPINION on the validator's assessment.
@@ -122,37 +122,38 @@ STEP-BY-STEP VERIFICATION:
      * List the missing functionality in your feedback
      * This is a validator error - note it
 
-═══════════════════════════════════════════════════════════════════════════════
-VERDICT OPTIONS:
-═══════════════════════════════════════════════════════════════════════════════
-
-AGREE - Validator's assessment is correct
-DISAGREE - Validator made errors (explain what they missed or got wrong)
-
 OUTPUT FORMAT:
 
-```json
+\`\`\`json
 {
   "RALPH_CROSS_VALIDATION": {
-    "agreement": "AGREE|DISAGREE",
-    "verdict": "PASS|NEEDS_FIXES|INADMISSIBLE|BLOCKED",
-    "feedback": "Your independent assessment + any corrections to validator's feedback",
-    "validator_errors": ["Things the first validator missed or got wrong"],
-    "completed_tasks": ["IDs of tasks that are ACTUALLY done"],
-    "incomplete_tasks": ["IDs of tasks not done or done wrong"],
-    "inadmissible_practices": ["List of inadmissible practices found, if any"]
+    "verdict": "CONFIRMED|REJECTED",
+    "tasks_verified": <number>,
+    "discrepancies_found": <number>,
+    "files_actually_read": ["List of production files you independently verified"],
+    "code_quotes": [
+      {"file": "path/to/file", "imports": "relevant imports", "production_calls": "actual code implementing feature"}
+    ],
+    "discrepancies": [
+      {"task_id": "T001", "claimed": "what implementer claimed", "actual": "what you found"}
+    ],
+    "feedback": "If REJECTED, what needs fixing"
   }
 }
-```
+\`\`\`
+
+VERDICT MEANINGS:
+- CONFIRMED: You independently agree all tasks are complete and correct
+- REJECTED: You found problems - provide specific feedback for implementation AI
 
 TASKS FILE:
 $tasks_file
 
-IMPLEMENTATION OUTPUT:
-$impl_output
+IMPLEMENTATION OUTPUT FILE (read this file to see what the implementer did):
+$impl_output_file
 
-FIRST VALIDATOR OUTPUT:
-$val_output
+FIRST VALIDATOR OUTPUT FILE (read this file to see the validator's assessment):
+$val_output_file
 
 NOW CROSS-VALIDATE. FORM YOUR OWN OPINION.
 CROSS_VAL_END

@@ -466,6 +466,8 @@ main_tasks_validation() {
         log_info "Original plan file provided: $ORIGINAL_PLAN_FILE"
         log_info "Running tasks validation before implementation..."
 
+        # Ensure state directory exists before saving state
+        mkdir -p "$STATE_DIR"
         CURRENT_PHASE="tasks_validation"
         save_state "running" 0
 

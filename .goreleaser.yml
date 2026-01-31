@@ -1,0 +1,51 @@
+version: 2
+
+builds:
+  - id: ralph-loop
+    main: ./cmd/ralph-loop/
+    binary: ralph-loop
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - arm64
+      - amd64
+    ignore:
+      - goos: linux
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: ralph-loop
+    builds:
+      - ralph-loop
+    format: tar.gz
+    name_template: "ralph-loop_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+brews:
+  - name: ralph-loop
+    repository:
+      owner: CodexForgeBR
+      name: homebrew-tap
+    homepage: "https://github.com/CodexForgeBR/cli-tools"
+    description: "Dual-model AI implementation-validation loop orchestrator"
+    license: "MIT"
+    install: |
+      bin.install "ralph-loop"

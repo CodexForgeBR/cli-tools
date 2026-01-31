@@ -34,6 +34,7 @@ send_notification() {
         tasks_invalid) emoji="❌" ;;
         inadmissible) emoji="⛔" ;;
         interrupted) emoji="⏸️" ;;
+        rate_limited) emoji="⏳" ;;
     esac
 
     # Format the full notification message
