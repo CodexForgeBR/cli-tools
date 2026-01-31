@@ -6,6 +6,7 @@ import (
 
 	"github.com/CodexForgeBR/cli-tools/internal/ai"
 	"github.com/CodexForgeBR/cli-tools/internal/exitcode"
+	"github.com/CodexForgeBR/cli-tools/internal/logging"
 	"github.com/CodexForgeBR/cli-tools/internal/parser"
 	"github.com/CodexForgeBR/cli-tools/internal/prompt"
 )
@@ -67,6 +68,8 @@ func RunPostValidationChain(ctx context.Context, cfg PostValidationConfig) PostV
 }
 
 func runCrossValidation(ctx context.Context, cfg PostValidationConfig) PostValidationResult {
+	logging.Phase("Cross-validation phase")
+
 	// Check for context cancellation
 	if ctx.Err() != nil {
 		return PostValidationResult{
@@ -146,6 +149,8 @@ func runCrossValidation(ctx context.Context, cfg PostValidationConfig) PostValid
 }
 
 func runFinalPlanValidation(ctx context.Context, cfg PostValidationConfig) PostValidationResult {
+	logging.Phase("Final-plan validation phase")
+
 	// Check for context cancellation
 	if ctx.Err() != nil {
 		return PostValidationResult{
