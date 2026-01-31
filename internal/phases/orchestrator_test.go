@@ -9,12 +9,13 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/CodexForgeBR/cli-tools/internal/ai"
 	"github.com/CodexForgeBR/cli-tools/internal/config"
 	"github.com/CodexForgeBR/cli-tools/internal/exitcode"
 	"github.com/CodexForgeBR/cli-tools/internal/state"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // MockOrchestratorAIRunner is a configurable mock for orchestrator tests

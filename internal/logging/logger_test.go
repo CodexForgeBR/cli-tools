@@ -6,10 +6,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/CodexForgeBR/cli-tools/internal/logging"
 	"github.com/fatih/color"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/CodexForgeBR/cli-tools/internal/logging"
 )
 
 func init() {

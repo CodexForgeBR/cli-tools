@@ -3,9 +3,10 @@ package config_test
 import (
 	"testing"
 
-	"github.com/CodexForgeBR/cli-tools/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/CodexForgeBR/cli-tools/internal/config"
 )
 
 func TestNewDefaultConfigValues(t *testing.T) {
