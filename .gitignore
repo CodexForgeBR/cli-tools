@@ -19,7 +19,7 @@ specs/
 
 # Go build artifacts
 dist/
-ralph-loop
+/ralph-loop
 *.exe
 *.out
 
