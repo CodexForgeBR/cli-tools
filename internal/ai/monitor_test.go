@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -459,5 +460,95 @@ func TestMonitorProcess_MissingFile(t *testing.T) {
 		time.Sleep(2 * time.Second)
 		cancel() // Clean shutdown
 		<-done
+	})
+}
+
+func TestMonitorProcess_DefaultValues(t *testing.T) {
+	t.Run("defaults HardCap to 7200 and TickInterval to 2s", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		outputPath := filepath.Join(tmpDir, "output.json")
+		err := os.WriteFile(outputPath, []byte("initial"), 0644)
+		require.NoError(t, err)
+
+		cfg := MonitorConfig{
+			InactivityTimeout: 1, // 1 second, will trigger quickly
+			HardCap:           0, // should default to 7200
+			OutputPath:        outputPath,
+			TickInterval:      0, // should default to 2s
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		done := make(chan struct{})
+		go func() {
+			MonitorProcess(ctx, cancel, cfg)
+			close(done)
+		}()
+
+		// The inactivity timeout of 1s with tick interval of 2s means
+		// it should detect inactivity on the first or second tick (~2-4s).
+		select {
+		case <-done:
+			// Good - monitor exited via inactivity timeout
+			assert.Error(t, ctx.Err())
+		case <-time.After(10 * time.Second):
+			t.Fatal("monitor did not exit with default config values")
+		}
+	})
+}
+
+func TestMonitorProcess_ReadFileError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows - file permissions differ")
+	}
+
+	t.Run("handles ReadFile error when file changes size but is unreadable", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		outputPath := filepath.Join(tmpDir, "output.json")
+
+		// Create an initial file (will be read first time with size 0 -> size change triggers ReadFile)
+		err := os.WriteFile(outputPath, []byte{}, 0644)
+		require.NoError(t, err)
+
+		cfg := MonitorConfig{
+			InactivityTimeout: 3,
+			HardCap:           10,
+			OutputPath:        outputPath,
+			TickInterval:      100 * time.Millisecond,
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		done := make(chan struct{})
+
+		go func() {
+			MonitorProcess(ctx, cancel, cfg)
+			close(done)
+		}()
+
+		// Wait for the monitor to observe the initial state
+		time.Sleep(300 * time.Millisecond)
+
+		// Write content to the file (changes size), then make it unreadable.
+		// The monitor will see the size change via Stat, attempt ReadFile,
+		// and get a permission error.
+		err = os.WriteFile(outputPath, []byte("some content here"), 0644)
+		require.NoError(t, err)
+		err = os.Chmod(outputPath, 0200) // write-only: Stat works, ReadFile fails
+		require.NoError(t, err)
+
+		// The monitor should continue running (not crash) and eventually
+		// hit the inactivity timeout since no more writes happen.
+		select {
+		case <-done:
+			// Good - monitor exited (inactivity timeout or hard cap)
+		case <-time.After(8 * time.Second):
+			t.Fatal("monitor did not exit after ReadFile error scenario")
+		}
+
+		// Restore permissions for cleanup
+		os.Chmod(outputPath, 0644)
 	})
 }

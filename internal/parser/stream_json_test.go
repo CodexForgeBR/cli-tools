@@ -337,3 +337,43 @@ func TestParseStreamJSON_WithTestdata(t *testing.T) {
 	assert.Contains(t, result, "Pattern: Use table-driven tests in Go")
 	assert.Contains(t, result, "Implementation complete with 2 tasks done.")
 }
+
+// TestExtractAssistantText_MessageNotMap tests when message field is not a map.
+func TestExtractAssistantText_MessageNotMap(t *testing.T) {
+	input := `{"type":"assistant","message":"not a map"}`
+
+	result := ParseStreamJSON(input)
+	assert.Equal(t, "", result, "Should return empty when message is not a map")
+}
+
+// TestExtractAssistantText_ContentNotArray tests when content field is not an array.
+func TestExtractAssistantText_ContentNotArray(t *testing.T) {
+	input := `{"type":"assistant","message":{"content":"not an array"}}`
+
+	result := ParseStreamJSON(input)
+	assert.Equal(t, "", result, "Should return empty when content is not an array")
+}
+
+// TestExtractAssistantText_ContentItemNotMap tests when content item is not a map.
+func TestExtractAssistantText_ContentItemNotMap(t *testing.T) {
+	input := `{"type":"assistant","message":{"content":["not a map", {"type":"text","text":"valid"}]}}`
+
+	result := ParseStreamJSON(input)
+	assert.Equal(t, "valid", result, "Should skip non-map items and extract valid ones")
+}
+
+// TestExtractAssistantText_EmptyTextContent tests when text field is empty.
+func TestExtractAssistantText_EmptyTextContent(t *testing.T) {
+	input := `{"type":"assistant","message":{"content":[{"type":"text","text":""}]}}`
+
+	result := ParseStreamJSON(input)
+	assert.Equal(t, "", result, "Should return empty when text content is empty")
+}
+
+// TestExtractResultText_EmptyResult tests when result field is empty.
+func TestExtractResultText_EmptyResult(t *testing.T) {
+	input := `{"type":"result","result":""}`
+
+	result := ParseStreamJSON(input)
+	assert.Equal(t, "", result, "Should return empty when result is empty")
+}

@@ -401,6 +401,107 @@ func TestRunImplementationPhase_LongPrompts(t *testing.T) {
 		"prompt should be very long")
 }
 
+// TestRunImplementationPhase_LearningsSectionTerminatedByHeader verifies learnings extraction stops at next ## header.
+func TestRunImplementationPhase_LearningsSectionTerminatedByHeader(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "output.md")
+
+	outputWithTerminatedLearnings := `# Implementation
+
+Some implementation details here.
+
+## Learnings
+
+- First learning point
+- Second learning point
+
+## Summary
+
+This section should NOT be included in learnings.
+- Not a learning
+`
+
+	mockRunner := &MockAIRunner{
+		OutputData: outputWithTerminatedLearnings,
+	}
+
+	config := ImplementationConfig{
+		Runner:           mockRunner,
+		Iteration:        1,
+		OutputPath:       outputPath,
+		FirstPrompt:      "Test prompt",
+		ContinuePrompt:   "Continue",
+		ExtractLearnings: true,
+	}
+
+	ctx := context.Background()
+	result, err := RunImplementationPhaseWithLearnings(ctx, config)
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, result.Learnings, "learnings should be extracted")
+	assert.Contains(t, result.Learnings, "First learning point")
+	assert.Contains(t, result.Learnings, "Second learning point")
+	assert.NotContains(t, result.Learnings, "Summary", "learnings should stop at next ## header")
+	assert.NotContains(t, result.Learnings, "Not a learning", "content after ## header should not be included")
+}
+
+// TestRunImplementationPhase_LearningsDisabled verifies learnings are not extracted when disabled.
+func TestRunImplementationPhase_LearningsDisabled(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "output.md")
+
+	outputWithLearnings := `# Implementation
+
+## Learnings
+
+- Important insight
+`
+
+	mockRunner := &MockAIRunner{
+		OutputData: outputWithLearnings,
+	}
+
+	config := ImplementationConfig{
+		Runner:           mockRunner,
+		Iteration:        1,
+		OutputPath:       outputPath,
+		FirstPrompt:      "Test prompt",
+		ContinuePrompt:   "Continue",
+		ExtractLearnings: false, // Disabled
+	}
+
+	ctx := context.Background()
+	result, err := RunImplementationPhaseWithLearnings(ctx, config)
+
+	require.NoError(t, err)
+	assert.Empty(t, result.Learnings, "learnings should be empty when extraction is disabled")
+}
+
+// TestRunImplementationPhase_WithLearningsRunnerError verifies error propagation in WithLearnings.
+func TestRunImplementationPhase_WithLearningsRunnerError(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "output.md")
+
+	mockRunner := &MockAIRunner{
+		Err: assert.AnError,
+	}
+
+	config := ImplementationConfig{
+		Runner:           mockRunner,
+		Iteration:        1,
+		OutputPath:       outputPath,
+		FirstPrompt:      "Test prompt",
+		ContinuePrompt:   "Continue",
+		ExtractLearnings: true,
+	}
+
+	ctx := context.Background()
+	result, err := RunImplementationPhaseWithLearnings(ctx, config)
+
+	require.Error(t, err)
+	assert.Empty(t, result.Learnings, "learnings should be empty on error")
+}
+
 // TestRunImplementationPhase_SpecialCharactersInPrompts verifies special characters are handled
 func TestRunImplementationPhase_SpecialCharactersInPrompts(t *testing.T) {
 	tmpDir := t.TempDir()

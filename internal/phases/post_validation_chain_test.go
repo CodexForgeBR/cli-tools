@@ -3,6 +3,7 @@ package phases
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/CodexForgeBR/cli-tools/internal/exitcode"
@@ -512,4 +513,188 @@ func makeValidationJSONWithBlocked(verdict string, feedback string, blockedTasks
 	}
 	jsonData, _ := json.Marshal(data)
 	return string(jsonData)
+}
+
+// mockDeleteOutputRunner is a mock that succeeds but removes the output file to trigger ReadFile errors.
+type mockDeleteOutputRunner struct {
+	CallCount int
+}
+
+func (m *mockDeleteOutputRunner) Run(ctx context.Context, prompt string, outputPath string) error {
+	m.CallCount++
+	// Remove the output file if it exists to guarantee ReadFile fails
+	os.Remove(outputPath)
+	return nil
+}
+
+// TestRunPostValidationChain_CrossValReadFileError tests runCrossValidation when output file cannot be read.
+func TestRunPostValidationChain_CrossValReadFileError(t *testing.T) {
+	crossValRunner := &mockDeleteOutputRunner{}
+
+	config := PostValidationConfig{
+		CrossValRunner:  crossValRunner,
+		CrossValEnabled: true,
+		FinalPlanEnabled: false,
+	}
+
+	ctx := context.Background()
+	result := RunPostValidationChain(ctx, config)
+
+	assert.Equal(t, "exit", result.Action, "should exit when output file cannot be read")
+	assert.Equal(t, exitcode.Error, result.ExitCode)
+}
+
+// TestRunPostValidationChain_CrossValParseError tests runCrossValidation when output is unparseable JSON.
+func TestRunPostValidationChain_CrossValParseError(t *testing.T) {
+	crossValRunner := &MockAIRunner{
+		OutputData: "this is not valid json at all {{{",
+	}
+
+	config := PostValidationConfig{
+		CrossValRunner:  crossValRunner,
+		CrossValEnabled: true,
+		FinalPlanEnabled: false,
+	}
+
+	ctx := context.Background()
+	result := RunPostValidationChain(ctx, config)
+
+	// ParseValidation should return nil, nil for unrecognized text (no RALPH_VALIDATION found)
+	// which leads to the "parsed == nil" branch
+	assert.Equal(t, "exit", result.Action, "should exit when output has no validation block")
+	assert.Equal(t, exitcode.Error, result.ExitCode)
+}
+
+// TestRunPostValidationChain_CrossValNilParsed tests runCrossValidation when parser returns nil.
+func TestRunPostValidationChain_CrossValNilParsed(t *testing.T) {
+	// Output with no RALPH_VALIDATION block → parser returns nil
+	crossValRunner := &MockAIRunner{
+		OutputData: "Some text output without any JSON validation block",
+	}
+
+	config := PostValidationConfig{
+		CrossValRunner:  crossValRunner,
+		CrossValEnabled: true,
+		FinalPlanEnabled: false,
+	}
+
+	ctx := context.Background()
+	result := RunPostValidationChain(ctx, config)
+
+	assert.Equal(t, "exit", result.Action, "should exit when no validation verdict found")
+	assert.Equal(t, exitcode.Error, result.ExitCode)
+}
+
+// TestRunPostValidationChain_FinalPlanReadFileError tests runFinalPlanValidation when output file cannot be read.
+func TestRunPostValidationChain_FinalPlanReadFileError(t *testing.T) {
+	finalPlanRunner := &mockDeleteOutputRunner{}
+
+	config := PostValidationConfig{
+		FinalPlanRunner:  finalPlanRunner,
+		CrossValEnabled:  false,
+		FinalPlanEnabled: true,
+	}
+
+	ctx := context.Background()
+	result := RunPostValidationChain(ctx, config)
+
+	assert.Equal(t, "exit", result.Action, "should exit when output file cannot be read")
+	assert.Equal(t, exitcode.Error, result.ExitCode)
+}
+
+// TestRunPostValidationChain_FinalPlanParseError tests runFinalPlanValidation when output is unparseable.
+func TestRunPostValidationChain_FinalPlanParseError(t *testing.T) {
+	finalPlanRunner := &MockAIRunner{
+		OutputData: "not json {{{",
+	}
+
+	config := PostValidationConfig{
+		FinalPlanRunner:  finalPlanRunner,
+		CrossValEnabled:  false,
+		FinalPlanEnabled: true,
+	}
+
+	ctx := context.Background()
+	result := RunPostValidationChain(ctx, config)
+
+	assert.Equal(t, "exit", result.Action, "should exit when output cannot be parsed")
+	assert.Equal(t, exitcode.Error, result.ExitCode)
+}
+
+// TestRunPostValidationChain_FinalPlanNilParsed tests runFinalPlanValidation when parser returns nil.
+func TestRunPostValidationChain_FinalPlanNilParsed(t *testing.T) {
+	finalPlanRunner := &MockAIRunner{
+		OutputData: "Some text output without any JSON validation block",
+	}
+
+	config := PostValidationConfig{
+		FinalPlanRunner:  finalPlanRunner,
+		CrossValEnabled:  false,
+		FinalPlanEnabled: true,
+	}
+
+	ctx := context.Background()
+	result := RunPostValidationChain(ctx, config)
+
+	assert.Equal(t, "exit", result.Action, "should exit when no validation verdict found")
+	assert.Equal(t, exitcode.Error, result.ExitCode)
+}
+
+// TestRunPostValidationChain_CrossValMalformedJSON tests runCrossValidation when output has malformed JSON with key.
+func TestRunPostValidationChain_CrossValMalformedJSON(t *testing.T) {
+	crossValRunner := &MockAIRunner{
+		OutputData: `RALPH_VALIDATION {broken json {{`,
+	}
+
+	config := PostValidationConfig{
+		CrossValRunner:  crossValRunner,
+		CrossValEnabled: true,
+		FinalPlanEnabled: false,
+	}
+
+	ctx := context.Background()
+	result := RunPostValidationChain(ctx, config)
+
+	assert.Equal(t, "exit", result.Action, "should exit on parse error")
+	assert.Equal(t, exitcode.Error, result.ExitCode)
+}
+
+// TestRunPostValidationChain_FinalPlanMalformedJSON tests runFinalPlanValidation when output has malformed JSON.
+func TestRunPostValidationChain_FinalPlanMalformedJSON(t *testing.T) {
+	finalPlanRunner := &MockAIRunner{
+		OutputData: `RALPH_VALIDATION {broken json {{`,
+	}
+
+	config := PostValidationConfig{
+		FinalPlanRunner:  finalPlanRunner,
+		CrossValEnabled:  false,
+		FinalPlanEnabled: true,
+	}
+
+	ctx := context.Background()
+	result := RunPostValidationChain(ctx, config)
+
+	assert.Equal(t, "exit", result.Action, "should exit on parse error")
+	assert.Equal(t, exitcode.Error, result.ExitCode)
+}
+
+// TestRunPostValidationChain_FinalPlanContextCancelled tests runFinalPlanValidation with cancelled context.
+func TestRunPostValidationChain_FinalPlanContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	finalPlanRunner := &MockAIRunner{
+		OutputData: makeValidationJSON("COMPLETE", ""),
+	}
+
+	config := PostValidationConfig{
+		FinalPlanRunner:  finalPlanRunner,
+		CrossValEnabled:  false,
+		FinalPlanEnabled: true,
+	}
+
+	result := RunPostValidationChain(ctx, config)
+
+	assert.Equal(t, "exit", result.Action, "should exit on context cancellation")
+	assert.Equal(t, exitcode.Error, result.ExitCode)
 }

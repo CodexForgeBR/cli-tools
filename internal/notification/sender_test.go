@@ -142,3 +142,26 @@ func TestSendNotification_RealCommand(t *testing.T) {
 	// (it will likely fail due to invalid webhook, but that's fine)
 	SendNotification("https://example.com", "test", "123", "test")
 }
+
+func TestSendNotification_CommandNotFound(t *testing.T) {
+	// Test that when openclaw command is not found, it doesn't panic
+	// Temporarily clear PATH to ensure openclaw is not found
+	oldPath := os.Getenv("PATH")
+	os.Setenv("PATH", "/nonexistent")
+	defer os.Setenv("PATH", oldPath)
+
+	// Should not panic even when command doesn't exist
+	SendNotification("https://webhook.example.com", "channel", "chat-123", "test message")
+	// If we got here without panic, test passes
+}
+
+func TestSendNotification_EmptyChatIDIsNoOp(t *testing.T) {
+	// Verify empty chatID results in no-op (no command execution)
+	// This should return immediately without any command execution
+	start := time.Now()
+	SendNotification("https://webhook.example.com", "channel", "", "test message")
+	duration := time.Since(start)
+
+	// Should complete instantly (well under 100ms)
+	assert.Less(t, duration, 100*time.Millisecond, "empty chatID should be a no-op")
+}

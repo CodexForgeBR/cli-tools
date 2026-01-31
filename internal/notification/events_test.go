@@ -103,6 +103,18 @@ func TestFormatEvent(t *testing.T) {
 	}
 }
 
+func TestFormatEvent_RateLimitedEvent(t *testing.T) {
+	result := FormatEvent(EventRateLimited, "my-project", "session-123", 8, 0)
+
+	assert.Contains(t, result, "⏳")
+	assert.Contains(t, result, "my-project")
+	assert.Contains(t, result, "[session-123]")
+	assert.Contains(t, result, "rate limit")
+	assert.Contains(t, result, "iteration 8")
+	assert.Contains(t, result, "waiting for reset")
+	// Note: rate_limited event doesn't include exit code in the format
+}
+
 func TestFormatEvent_AllEventsIncludeRequiredFields(t *testing.T) {
 	// Test that every event includes project name, session ID, and exit code
 	events := []string{

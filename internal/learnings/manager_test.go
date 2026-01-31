@@ -2,8 +2,10 @@ package learnings
 
 import (
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -68,6 +70,38 @@ func TestInitLearnings_OverwritesExistingFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(content), "# Ralph Loop Learnings")
 	assert.NotContains(t, string(content), "Old content here")
+}
+
+func TestInitLearnings_FailsWithInvalidPath(t *testing.T) {
+	// Try to initialize in a path that cannot be created (e.g., as a child of a file)
+	tempDir := t.TempDir()
+
+	// Create a regular file
+	blockingFile := filepath.Join(tempDir, "blocking-file")
+	err := os.WriteFile(blockingFile, []byte("content"), 0644)
+	require.NoError(t, err)
+
+	// Try to create a learnings file inside the regular file (impossible)
+	invalidPath := filepath.Join(blockingFile, "nested", "learnings.md")
+
+	err = InitLearnings(invalidPath)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create parent directory")
+}
+
+func TestInitLearnings_FailsWhenWriteFileFails(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create a directory with the same name as the target file
+	// This will cause os.WriteFile to fail
+	filePath := filepath.Join(tempDir, "learnings.md")
+	err := os.Mkdir(filePath, 0755)
+	require.NoError(t, err)
+
+	// Try to initialize - should fail because we can't write a file over a directory
+	err = InitLearnings(filePath)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to write learnings file")
 }
 
 func TestAppendLearnings_AddsEntryWithIterationAndTimestamp(t *testing.T) {
@@ -346,4 +380,111 @@ func TestAppendLearnings_FormattingPreservation(t *testing.T) {
 	assert.Contains(t, result, "2. Validate input")
 	assert.Contains(t, result, "- cmd/ for CLI entry points")
 	assert.Contains(t, result, "- internal/ for private packages")
+}
+
+func TestAppendLearnings_FailsWithReadOnlyFile(t *testing.T) {
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "readonly.md")
+
+	// Create a file and make it read-only
+	err := os.WriteFile(filePath, []byte("initial content"), 0444)
+	require.NoError(t, err)
+
+	// Try to append - should fail
+	err = AppendLearnings(filePath, 1, "- Pattern: This should fail")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to open learnings file")
+}
+
+func TestAppendLearnings_FailsWithDirectoryAsFile(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create a directory with the name we want to use as a file
+	dirPath := filepath.Join(tempDir, "learnings-dir")
+	err := os.Mkdir(dirPath, 0755)
+	require.NoError(t, err)
+
+	// Try to append to the directory (OpenFile should fail)
+	err = AppendLearnings(dirPath, 1, "- Pattern: This should fail")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to open learnings file")
+}
+
+func TestAppendLearnings_WriteStringErrorPath(t *testing.T) {
+	// This test attempts to trigger the WriteString error path at manager.go:63
+	// This error is difficult to trigger portably because it requires:
+	// 1. Successfully opening a file for appending, but
+	// 2. Failing to write to it after opening
+	//
+	// On Linux, /dev/full provides this behavior (opens successfully, writes fail)
+	// On macOS/BSD, /dev/full doesn't exist
+	//
+	// Try to use /dev/full if available (Linux systems)
+	devFull := "/dev/full"
+	if _, err := os.Stat(devFull); os.IsNotExist(err) {
+		// On macOS, we'll try /dev/zero which is read-only
+		// Actually, /dev/zero is readable, not writable
+		// There's no portable way to test this without /dev/full
+		t.Skip("Skipping test: /dev/full not available (Linux-only test)")
+		return
+	}
+
+	// /dev/full is a special file that:
+	// - Opens successfully with O_WRONLY
+	// - Returns ENOSPC (no space left) on write operations
+	// This triggers the WriteString error path
+	err := AppendLearnings(devFull, 1, "- Pattern: This should fail with ENOSPC")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to append learnings")
+}
+
+
+
+func TestAppendLearnings_WriteStringError_RLIMIT(t *testing.T) {
+	// Trigger WriteString error by setting RLIMIT_FSIZE to 0.
+	// This causes any write to a new file to fail with EFBIG ("file too large").
+	// Works on macOS and Linux without needing /dev/full.
+	//
+	// SIGXFSZ must be ignored to prevent process termination.
+
+	// Ignore SIGXFSZ to prevent default signal handler from terminating process
+	signal.Ignore(syscall.SIGXFSZ)
+	defer signal.Reset(syscall.SIGXFSZ)
+
+	// Save current RLIMIT_FSIZE
+	var origRlim syscall.Rlimit
+	err := syscall.Getrlimit(syscall.RLIMIT_FSIZE, &origRlim)
+	require.NoError(t, err, "should be able to get RLIMIT_FSIZE")
+
+	// Set RLIMIT_FSIZE to 0 bytes
+	newRlim := syscall.Rlimit{Cur: 0, Max: origRlim.Max}
+	err = syscall.Setrlimit(syscall.RLIMIT_FSIZE, &newRlim)
+	require.NoError(t, err, "should be able to set RLIMIT_FSIZE to 0")
+
+	// Restore original limit when done
+	defer func() {
+		syscall.Setrlimit(syscall.RLIMIT_FSIZE, &origRlim)
+	}()
+
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "learnings.md")
+
+	// OpenFile with O_CREATE|O_APPEND|O_WRONLY should succeed (creating empty file),
+	// but WriteString should fail with EFBIG
+	err = AppendLearnings(filePath, 1, "- Pattern: This write should fail with EFBIG")
+	assert.Error(t, err, "WriteString should fail when RLIMIT_FSIZE is 0")
+	assert.Contains(t, err.Error(), "failed to append learnings", "should wrap as learnings error")
+}
+
+func TestReadLearnings_WithPermissionError(t *testing.T) {
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "nopermission.md")
+
+	// Create a file with no read permissions
+	err := os.WriteFile(filePath, []byte("secret content"), 0200)
+	require.NoError(t, err)
+
+	// Reading should return empty string (silent failure)
+	content := ReadLearnings(filePath)
+	assert.Equal(t, "", content)
 }

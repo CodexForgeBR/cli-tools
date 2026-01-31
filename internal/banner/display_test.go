@@ -339,6 +339,450 @@ func TestPrintBlockedBanner_NilList(t *testing.T) {
 	assert.NotEmpty(t, output, "blocked banner should not be empty even with nil tasks")
 }
 
+// TestPrintMaxIterationsBanner verifies max iterations banner shows counts
+func TestPrintMaxIterationsBanner(t *testing.T) {
+	tests := []struct {
+		name          string
+		iterations    int
+		maxIterations int
+		checkFunc     func(t *testing.T, output string)
+	}{
+		{
+			name:          "reached exact limit",
+			iterations:    100,
+			maxIterations: 100,
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "100", "should show iteration count")
+				assert.Contains(t, output, "100/100", "should show both counts")
+			},
+		},
+		{
+			name:          "small iteration limit",
+			iterations:    5,
+			maxIterations: 5,
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "5", "should show iteration count")
+				assert.Contains(t, output, "5/5", "should show both counts")
+			},
+		},
+		{
+			name:          "large iteration limit",
+			iterations:    1000,
+			maxIterations: 1000,
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "1000", "should show iteration count")
+				assert.Contains(t, output, "1000/1000", "should show both counts")
+			},
+		},
+		{
+			name:          "zero iterations",
+			iterations:    0,
+			maxIterations: 0,
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "0", "should show zero")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output := captureStdout(t, func() {
+				PrintMaxIterationsBanner(tt.iterations, tt.maxIterations)
+			})
+
+			assert.NotEmpty(t, output, "max iterations banner should not be empty")
+			tt.checkFunc(t, output)
+
+			// Should contain max/limit indicator
+			lowerOutput := strings.ToLower(output)
+			hasMaxIndicator := strings.Contains(lowerOutput, "max") ||
+				strings.Contains(lowerOutput, "limit") ||
+				strings.Contains(lowerOutput, "reached")
+			assert.True(t, hasMaxIndicator, "max iterations banner should indicate limit reached")
+		})
+	}
+}
+
+// TestPrintInadmissibleBanner verifies inadmissible banner shows counts
+func TestPrintInadmissibleBanner(t *testing.T) {
+	tests := []struct {
+		name      string
+		count     int
+		max       int
+		checkFunc func(t *testing.T, output string)
+	}{
+		{
+			name:  "threshold exceeded",
+			count: 5,
+			max:   5,
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "5", "should show count")
+				assert.Contains(t, output, "5/5", "should show both counts")
+			},
+		},
+		{
+			name:  "small threshold",
+			count: 3,
+			max:   3,
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "3", "should show count")
+				assert.Contains(t, output, "3/3", "should show both counts")
+			},
+		},
+		{
+			name:  "large threshold",
+			count: 100,
+			max:   100,
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "100", "should show count")
+				assert.Contains(t, output, "100/100", "should show both counts")
+			},
+		},
+		{
+			name:  "zero threshold",
+			count: 0,
+			max:   0,
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "0", "should show zero")
+			},
+		},
+		{
+			name:  "exceeded by one",
+			count: 6,
+			max:   5,
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "6", "should show current count")
+				assert.Contains(t, output, "5", "should show max")
+				assert.Contains(t, output, "6/5", "should show exceeded ratio")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output := captureStdout(t, func() {
+				PrintInadmissibleBanner(tt.count, tt.max)
+			})
+
+			assert.NotEmpty(t, output, "inadmissible banner should not be empty")
+			tt.checkFunc(t, output)
+
+			// Should contain inadmissible/threshold indicator
+			lowerOutput := strings.ToLower(output)
+			hasThresholdIndicator := strings.Contains(lowerOutput, "inadmissible") ||
+				strings.Contains(lowerOutput, "threshold") ||
+				strings.Contains(lowerOutput, "exceed")
+			assert.True(t, hasThresholdIndicator, "inadmissible banner should indicate threshold exceeded")
+		})
+	}
+}
+
+// TestPrintInterruptedBanner verifies interrupted banner shows iteration and phase
+func TestPrintInterruptedBanner(t *testing.T) {
+	tests := []struct {
+		name      string
+		iteration int
+		phase     string
+		checkFunc func(t *testing.T, output string)
+	}{
+		{
+			name:      "validation phase",
+			iteration: 3,
+			phase:     "validation",
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "3", "should show iteration")
+				assert.Contains(t, output, "validation", "should show phase")
+			},
+		},
+		{
+			name:      "implementation phase",
+			iteration: 7,
+			phase:     "implementation",
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "7", "should show iteration")
+				assert.Contains(t, output, "implementation", "should show phase")
+			},
+		},
+		{
+			name:      "planning phase",
+			iteration: 1,
+			phase:     "planning",
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "1", "should show iteration")
+				assert.Contains(t, output, "planning", "should show phase")
+			},
+		},
+		{
+			name:      "first iteration",
+			iteration: 0,
+			phase:     "startup",
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "0", "should show zero iteration")
+				assert.Contains(t, output, "startup", "should show phase")
+			},
+		},
+		{
+			name:      "empty phase",
+			iteration: 5,
+			phase:     "",
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "5", "should show iteration even with empty phase")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output := captureStdout(t, func() {
+				PrintInterruptedBanner(tt.iteration, tt.phase)
+			})
+
+			assert.NotEmpty(t, output, "interrupted banner should not be empty")
+			tt.checkFunc(t, output)
+
+			// Should contain interrupt indicator
+			lowerOutput := strings.ToLower(output)
+			hasInterruptIndicator := strings.Contains(lowerOutput, "interrupt") ||
+				strings.Contains(lowerOutput, "stopped") ||
+				strings.Contains(lowerOutput, "paused")
+			assert.True(t, hasInterruptIndicator, "interrupted banner should indicate interruption")
+
+			// Should mention resume capability
+			hasResumeInfo := strings.Contains(lowerOutput, "resume") ||
+				strings.Contains(lowerOutput, "continue")
+			assert.True(t, hasResumeInfo, "interrupted banner should mention resume capability")
+		})
+	}
+}
+
+// TestPrintStatusBanner verifies status banner displays all fields correctly
+func TestPrintStatusBanner(t *testing.T) {
+	tests := []struct {
+		name      string
+		info      StatusInfo
+		checkFunc func(t *testing.T, output string)
+	}{
+		{
+			name: "complete status info",
+			info: StatusInfo{
+				SessionID:         "sess-2026-01-30",
+				Status:            "IN_PROGRESS",
+				Phase:             "validation",
+				Verdict:           "NEEDS_MORE_WORK",
+				Iteration:         5,
+				MaxIterations:     20,
+				InadmissibleCount: 2,
+				MaxInadmissible:   5,
+				StartedAt:         "2026-01-30T10:00:00Z",
+				LastUpdated:       "2026-01-30T10:30:00Z",
+				AICli:             "claude",
+				ImplModel:         "opus",
+				ValModel:          "sonnet",
+				CrossValEnabled:   true,
+				CrossAI:           "openai",
+				CrossModel:        "gpt-4",
+				RetryAttempt:      2,
+				RetryDelay:        10,
+				LastFeedback:      "Tests are failing, please fix",
+			},
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "sess-2026-01-30", "should show session ID")
+				assert.Contains(t, output, "IN_PROGRESS", "should show status")
+				assert.Contains(t, output, "validation", "should show phase")
+				assert.Contains(t, output, "NEEDS_MORE_WORK", "should show verdict")
+				assert.Contains(t, output, "5/20", "should show iteration count")
+				assert.Contains(t, output, "2/5", "should show inadmissible count")
+				assert.Contains(t, output, "claude", "should show AI CLI")
+				assert.Contains(t, output, "opus", "should show impl model")
+				assert.Contains(t, output, "sonnet", "should show val model")
+				assert.Contains(t, output, "openai", "should show cross-val AI")
+				assert.Contains(t, output, "gpt-4", "should show cross-val model")
+				assert.Contains(t, output, "2026-01-30T10:00:00Z", "should show started timestamp")
+				assert.Contains(t, output, "2026-01-30T10:30:00Z", "should show updated timestamp")
+				assert.Contains(t, output, "2", "should show retry attempt")
+				assert.Contains(t, output, "10", "should show retry delay")
+				assert.Contains(t, output, "Tests are failing", "should show feedback")
+			},
+		},
+		{
+			name: "minimal status info",
+			info: StatusInfo{
+				SessionID: "minimal-session",
+				Status:    "RUNNING",
+				Phase:     "impl",
+				Verdict:   "PASS",
+				Iteration: 1,
+			},
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "minimal-session", "should show session ID")
+				assert.Contains(t, output, "RUNNING", "should show status")
+				assert.Contains(t, output, "impl", "should show phase")
+				assert.Contains(t, output, "PASS", "should show verdict")
+				assert.Contains(t, output, "1", "should show iteration")
+				// Should not show max iterations when not provided
+				assert.NotContains(t, output, "0/0", "should not show zero max iterations")
+			},
+		},
+		{
+			name: "with max iterations but no inadmissible",
+			info: StatusInfo{
+				SessionID:     "test-session",
+				Status:        "ACTIVE",
+				Phase:         "planning",
+				Verdict:       "ADMISSIBLE",
+				Iteration:     3,
+				MaxIterations: 10,
+			},
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "test-session", "should show session ID")
+				assert.Contains(t, output, "3/10", "should show iteration with max")
+			},
+		},
+		{
+			name: "long feedback gets truncated",
+			info: StatusInfo{
+				SessionID:    "trunc-session",
+				Status:       "IN_PROGRESS",
+				Phase:        "validation",
+				Verdict:      "NEEDS_WORK",
+				Iteration:    1,
+				LastFeedback: "This is a very long feedback message that exceeds the maximum allowed length and should be truncated to prevent cluttering the banner display output",
+			},
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "This is a very long feedback", "should show start of feedback")
+				assert.Contains(t, output, "...", "should show truncation indicator")
+				// Full feedback should not appear
+				assert.NotContains(t, output, "cluttering the banner display output", "should truncate long feedback")
+			},
+		},
+		{
+			name: "cross-validation disabled",
+			info: StatusInfo{
+				SessionID:       "no-cross-val",
+				Status:          "RUNNING",
+				Phase:           "impl",
+				Verdict:         "PASS",
+				Iteration:       2,
+				AICli:           "claude",
+				ImplModel:       "opus",
+				ValModel:        "opus",
+				CrossValEnabled: false,
+			},
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "claude", "should show AI CLI")
+				assert.Contains(t, output, "opus", "should show model")
+				// Cross-val info should not appear when disabled
+				lowerOutput := strings.ToLower(output)
+				if strings.Contains(lowerOutput, "cross") {
+					// If "cross" appears, it should not be followed by AI/model info
+					assert.NotContains(t, output, "Cross-val:", "should not show cross-val section when disabled")
+				}
+			},
+		},
+		{
+			name: "no retry information",
+			info: StatusInfo{
+				SessionID: "no-retry",
+				Status:    "OK",
+				Phase:     "done",
+				Verdict:   "PASS",
+				Iteration: 1,
+			},
+			checkFunc: func(t *testing.T, output string) {
+				// Should not show retry section (looking for "Retry:" or "attempt")
+				assert.NotContains(t, output, "Retry:", "should not show retry section when not retrying")
+				lowerOutput := strings.ToLower(output)
+				assert.NotContains(t, lowerOutput, "attempt", "should not show retry attempt when not retrying")
+			},
+		},
+		{
+			name: "with retry information",
+			info: StatusInfo{
+				SessionID:    "with-retry",
+				Status:       "RETRYING",
+				Phase:        "validation",
+				Verdict:      "ERROR",
+				Iteration:    3,
+				RetryAttempt: 1,
+				RetryDelay:   5,
+			},
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "1", "should show retry attempt")
+				assert.Contains(t, output, "5", "should show retry delay")
+				lowerOutput := strings.ToLower(output)
+				assert.Contains(t, lowerOutput, "retry", "should mention retry")
+			},
+		},
+		{
+			name: "empty timestamps",
+			info: StatusInfo{
+				SessionID:   "no-timestamps",
+				Status:      "NEW",
+				Phase:       "init",
+				Verdict:     "PENDING",
+				Iteration:   0,
+				StartedAt:   "",
+				LastUpdated: "",
+			},
+			checkFunc: func(t *testing.T, output string) {
+				assert.Contains(t, output, "no-timestamps", "should show session ID")
+				// Timestamps should not show when empty
+				assert.NotContains(t, output, "Started:", "should not show empty started timestamp")
+				assert.NotContains(t, output, "Updated:", "should not show empty updated timestamp")
+			},
+		},
+		{
+			name: "inadmissible count without max",
+			info: StatusInfo{
+				SessionID:         "inadm-no-max",
+				Status:            "RUNNING",
+				Phase:             "validation",
+				Verdict:           "INADMISSIBLE",
+				Iteration:         2,
+				InadmissibleCount: 3,
+				MaxInadmissible:   0,
+			},
+			checkFunc: func(t *testing.T, output string) {
+				// Should show inadmissible info even when max is zero
+				assert.Contains(t, output, "3", "should show inadmissible count")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output := captureStdout(t, func() {
+				PrintStatusBanner(tt.info)
+			})
+
+			assert.NotEmpty(t, output, "status banner should not be empty")
+			tt.checkFunc(t, output)
+		})
+	}
+}
+
+// TestPrintStatusBanner_RequiredFields verifies required fields always appear
+func TestPrintStatusBanner_RequiredFields(t *testing.T) {
+	info := StatusInfo{
+		SessionID: "required-test",
+		Status:    "TEST",
+		Phase:     "testing",
+		Verdict:   "TEST_VERDICT",
+		Iteration: 99,
+	}
+
+	output := captureStdout(t, func() {
+		PrintStatusBanner(info)
+	})
+
+	// These fields should always appear
+	assert.Contains(t, output, "required-test", "should always show session ID")
+	assert.Contains(t, output, "TEST", "should always show status")
+	assert.Contains(t, output, "testing", "should always show phase")
+	assert.Contains(t, output, "TEST_VERDICT", "should always show verdict")
+	assert.Contains(t, output, "99", "should always show iteration")
+}
+
 // TestBannerOutput_NoColorCodes verifies banners work without ANSI color codes in plain environments
 func TestBannerOutput_NotEmpty(t *testing.T) {
 	// All banner functions should produce non-empty output
@@ -368,6 +812,36 @@ func TestBannerOutput_NotEmpty(t *testing.T) {
 			name: "blocked banner",
 			fn: func() {
 				PrintBlockedBanner([]string{"test task"})
+			},
+		},
+		{
+			name: "max iterations banner",
+			fn: func() {
+				PrintMaxIterationsBanner(100, 100)
+			},
+		},
+		{
+			name: "inadmissible banner",
+			fn: func() {
+				PrintInadmissibleBanner(5, 5)
+			},
+		},
+		{
+			name: "interrupted banner",
+			fn: func() {
+				PrintInterruptedBanner(3, "validation")
+			},
+		},
+		{
+			name: "status banner",
+			fn: func() {
+				PrintStatusBanner(StatusInfo{
+					SessionID: "test",
+					Status:    "RUNNING",
+					Phase:     "impl",
+					Verdict:   "PASS",
+					Iteration: 1,
+				})
 			},
 		},
 	}

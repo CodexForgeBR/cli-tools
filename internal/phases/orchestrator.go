@@ -24,14 +24,15 @@ import (
 
 // Orchestrator runs the 10-phase state machine.
 type Orchestrator struct {
-	Config         *config.Config
-	StateDir       string
-	ImplRunner     ai.AIRunner
-	ValRunner      ai.AIRunner
-	CrossRunner    ai.AIRunner
-	TasksValRunner ai.AIRunner
-	session        *state.SessionState
-	startTime      time.Time
+	Config          *config.Config
+	StateDir        string
+	ImplRunner      ai.AIRunner
+	ValRunner       ai.AIRunner
+	CrossRunner     ai.AIRunner
+	FinalPlanRunner ai.AIRunner
+	TasksValRunner  ai.AIRunner
+	session         *state.SessionState
+	startTime       time.Time
 }
 
 // NewOrchestrator creates a new orchestrator with the given config.
@@ -148,6 +149,11 @@ func (o *Orchestrator) phaseCommandChecks() int {
 }
 
 func (o *Orchestrator) phaseBanner() {
+	if o.session == nil {
+		// Session not yet loaded (e.g., during resume). Banner will be
+		// printed after phaseResumeCheck restores the session.
+		return
+	}
 	banner.PrintStartupBanner(
 		o.session.SessionID,
 		o.Config.AIProvider,
@@ -157,6 +163,11 @@ func (o *Orchestrator) phaseBanner() {
 }
 
 func (o *Orchestrator) phaseFindTasks() int {
+	// Skip if resuming — the resumed session already has the tasks file
+	if o.session == nil {
+		return -1
+	}
+
 	logging.Phase("Finding tasks file")
 
 	tasksFile := o.Config.TasksFile
@@ -206,13 +217,27 @@ func (o *Orchestrator) phaseResumeCheck() int {
 	// Handle --status flag: show session status and exit
 	if o.Config.Status {
 		if existing, err := state.LoadState(o.StateDir); err == nil {
-			banner.PrintStatusBanner(
-				existing.SessionID,
-				existing.Status,
-				existing.Iteration,
-				existing.Phase,
-				existing.Verdict,
-			)
+			banner.PrintStatusBanner(banner.StatusInfo{
+				SessionID:         existing.SessionID,
+				Status:            existing.Status,
+				Phase:             existing.Phase,
+				Verdict:           existing.Verdict,
+				Iteration:         existing.Iteration,
+				MaxIterations:     existing.MaxIterations,
+				InadmissibleCount: existing.InadmissibleCount,
+				MaxInadmissible:   existing.MaxInadmissible,
+				StartedAt:         existing.StartedAt,
+				LastUpdated:       existing.LastUpdated,
+				AICli:             existing.AICli,
+				ImplModel:         existing.ImplModel,
+				ValModel:          existing.ValModel,
+				CrossValEnabled:   existing.CrossValidation.Enabled == 1,
+				CrossAI:           existing.CrossValidation.AI,
+				CrossModel:        existing.CrossValidation.Model,
+				RetryAttempt:      existing.RetryState.Attempt,
+				RetryDelay:        existing.RetryState.Delay,
+				LastFeedback:      existing.LastFeedback,
+			})
 		} else {
 			logging.Info("No active session found.")
 		}
@@ -233,7 +258,7 @@ func (o *Orchestrator) phaseResumeCheck() int {
 			state.SaveState(existing, o.StateDir)
 			logging.Info("Session cancelled.")
 		}
-		return exitcode.Error
+		return exitcode.Success
 	}
 
 	// Handle --resume and --resume-force flags
@@ -253,6 +278,22 @@ func (o *Orchestrator) phaseResumeCheck() int {
 
 		// Replace the session with the resumed one
 		o.session = existing
+
+		// Restore config from saved state so the orchestrator uses the same
+		// settings as the original session. CLI flag overrides are applied by
+		// the precedence chain in main.go before Run() is called, so any
+		// explicit overrides take effect on top of these restored values.
+		o.Config.AIProvider = existing.AICli
+		o.Config.ImplModel = existing.ImplModel
+		o.Config.ValModel = existing.ValModel
+		o.Config.MaxIterations = existing.MaxIterations
+		o.Config.MaxInadmissible = existing.MaxInadmissible
+		o.Config.TasksFile = existing.TasksFile
+		o.Config.EnableLearnings = existing.Learnings.Enabled == 1
+		o.Config.LearningsFile = existing.Learnings.File
+		o.Config.CrossValidate = existing.CrossValidation.Enabled == 1
+		o.Config.CrossAI = existing.CrossValidation.AI
+		o.Config.CrossModel = existing.CrossValidation.Model
 
 		logging.Info(fmt.Sprintf("Resuming session %s from iteration %d, phase %s",
 			existing.SessionID, existing.Iteration, existing.Phase))
@@ -517,10 +558,10 @@ func (o *Orchestrator) phaseIterationLoop(ctx context.Context) int {
 			case exitcode.Success:
 				// Run post-validation chain
 				postResult := RunPostValidationChain(ctx, PostValidationConfig{
-					CrossValRunner:   o.CrossRunner,
-					FinalPlanRunner:  o.CrossRunner, // Placeholder
-					CrossValEnabled:  o.Config.CrossValidate,
-					FinalPlanEnabled: o.Config.FinalPlanAI != "",
+					CrossValRunner:    o.CrossRunner,
+					FinalPlanRunner:   o.FinalPlanRunner,
+					CrossValEnabled:   o.Config.CrossValidate && o.CrossRunner != nil,
+					FinalPlanEnabled:  o.FinalPlanRunner != nil,
 					InadmissibleCount: o.session.InadmissibleCount,
 					MaxInadmissible:   o.session.MaxInadmissible,
 				})

@@ -307,3 +307,91 @@ func TestParseCrossValidation_EmptyObject(t *testing.T) {
 	assert.Empty(t, result.Verdict)
 	assert.Empty(t, result.Feedback)
 }
+
+// TestParseCrossValidation_NilResultFromExtractJSON tests when ExtractJSON returns nil.
+func TestParseCrossValidation_NilResultFromExtractJSON(t *testing.T) {
+	input := "This text does not contain the RALPH_CROSS_VALIDATION marker at all"
+
+	result, err := ParseCrossValidation(input)
+	assert.NoError(t, err)
+	assert.Nil(t, result, "Should return nil when marker not found")
+}
+
+// TestParseCrossValidation_CompleteFieldsParsing tests all fields are parsed correctly.
+func TestParseCrossValidation_CompleteFieldsParsing(t *testing.T) {
+	input := `{
+		"RALPH_CROSS_VALIDATION": {
+			"verdict": "REJECTED",
+			"tasks_verified": 5,
+			"discrepancies_found": 2,
+			"files_actually_read": ["file1.go", "file2.go", "file3.go"],
+			"code_quotes": [
+				{"file": "main.go", "imports": ["fmt", "os"]},
+				{"file": "util.go", "production_calls": ["DoSomething"]}
+			],
+			"discrepancies": [
+				{"task_id": "T001", "claimed": "DONE", "actual": "INCOMPLETE"},
+				{"task_id": "T002", "claimed": "TESTED", "actual": "NO_TESTS"}
+			],
+			"feedback": "Found issues in implementation"
+		}
+	}`
+
+	result, err := ParseCrossValidation(input)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	assert.Equal(t, "REJECTED", result.Verdict)
+	assert.Equal(t, 5, result.TasksVerified)
+	assert.Equal(t, 2, result.DiscrepanciesFound)
+	assert.Equal(t, []string{"file1.go", "file2.go", "file3.go"}, result.FilesActuallyRead)
+	assert.Len(t, result.CodeQuotes, 2)
+	assert.Len(t, result.Discrepancies, 2)
+	assert.Equal(t, "Found issues in implementation", result.Feedback)
+}
+
+// TestParseCrossValidation_ArraysWithInvalidTypes tests arrays with non-string/non-object items.
+func TestParseCrossValidation_ArraysWithInvalidTypes(t *testing.T) {
+	input := `{
+		"RALPH_CROSS_VALIDATION": {
+			"verdict": "CONFIRMED",
+			"files_actually_read": ["valid.go", 123, "another.go", null, true],
+			"code_quotes": [{"file": "ok.go"}, "invalid", 456],
+			"discrepancies": [{"task_id": "T001"}, "bad", {"task_id": "T002"}]
+		}
+	}`
+
+	result, err := ParseCrossValidation(input)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	assert.Equal(t, "CONFIRMED", result.Verdict)
+	// Only string items should be included
+	assert.Equal(t, []string{"valid.go", "another.go"}, result.FilesActuallyRead)
+	// Only map items should be included
+	assert.Len(t, result.CodeQuotes, 1)
+	assert.Len(t, result.Discrepancies, 2)
+}
+
+// TestParseCrossValidation_NoFieldsButHasKey tests when RALPH_CROSS_VALIDATION key exists but has no valid fields.
+func TestParseCrossValidation_NoFieldsButHasKey(t *testing.T) {
+	input := `{
+		"RALPH_CROSS_VALIDATION": {
+			"unknown_field": "value",
+			"another_unknown": 123
+		}
+	}`
+
+	result, err := ParseCrossValidation(input)
+	require.NoError(t, err)
+	require.NotNil(t, result, "Should return non-nil result when key exists")
+
+	// All fields should be empty/zero
+	assert.Empty(t, result.Verdict)
+	assert.Zero(t, result.TasksVerified)
+	assert.Zero(t, result.DiscrepanciesFound)
+	assert.Nil(t, result.FilesActuallyRead)
+	assert.Nil(t, result.CodeQuotes)
+	assert.Nil(t, result.Discrepancies)
+	assert.Empty(t, result.Feedback)
+}

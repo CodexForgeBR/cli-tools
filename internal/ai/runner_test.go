@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/CodexForgeBR/cli-tools/internal/ratelimit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -132,6 +133,70 @@ func TestAIRunnerInterfaceContract(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// RateLimitError tests
+// ---------------------------------------------------------------------------
+
+func TestRateLimitError_Error(t *testing.T) {
+	t.Run("with parseable info shows reset time", func(t *testing.T) {
+		err := &RateLimitError{
+			Info: &ratelimit.RateLimitInfo{
+				Detected:   true,
+				Parseable:  true,
+				ResetHuman: "2026-01-30 18:00:00 UTC",
+			},
+		}
+		assert.Contains(t, err.Error(), "resets at")
+		assert.Contains(t, err.Error(), "2026-01-30 18:00:00 UTC")
+	})
+
+	t.Run("with unparseable info shows unknown", func(t *testing.T) {
+		err := &RateLimitError{
+			Info: &ratelimit.RateLimitInfo{
+				Detected:  true,
+				Parseable: false,
+			},
+		}
+		assert.Contains(t, err.Error(), "reset time unknown")
+	})
+
+	t.Run("with nil info shows unknown", func(t *testing.T) {
+		err := &RateLimitError{
+			Info: nil,
+		}
+		assert.Contains(t, err.Error(), "reset time unknown")
+	})
+}
+
+func TestRateLimitError_Unwrap(t *testing.T) {
+	t.Run("returns underlying error", func(t *testing.T) {
+		underlying := errors.New("command failed")
+		err := &RateLimitError{
+			UnderlyingErr: underlying,
+		}
+		assert.Equal(t, underlying, err.Unwrap())
+	})
+
+	t.Run("returns nil when no underlying error", func(t *testing.T) {
+		err := &RateLimitError{}
+		assert.Nil(t, err.Unwrap())
+	})
+
+	t.Run("errors.As works with RateLimitError", func(t *testing.T) {
+		underlying := errors.New("command failed")
+		rlErr := &RateLimitError{
+			Info: &ratelimit.RateLimitInfo{
+				Detected: true,
+			},
+			UnderlyingErr: underlying,
+		}
+
+		var target *RateLimitError
+		assert.True(t, errors.As(rlErr, &target))
+		assert.Equal(t, rlErr, target)
+	})
 }
 
 // mockRunner is a test implementation of AIRunner

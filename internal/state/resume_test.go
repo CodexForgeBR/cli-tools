@@ -405,3 +405,48 @@ func computeTestHash(content []byte) string {
 	sum := sha256.Sum256(content)
 	return hex.EncodeToString(sum[:])
 }
+
+// TestResumeFromState_FinalPlanValidationPhase tests resuming from final_plan_validation phase.
+func TestResumeFromState_FinalPlanValidationPhase(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create tasks file
+	tasksFile := filepath.Join(tmpDir, "tasks.md")
+	tasksContent := []byte("# Tasks\n- [ ] Task 1\n")
+	err := os.WriteFile(tasksFile, tasksContent, 0644)
+	require.NoError(t, err)
+
+	// Create state at final_plan_validation phase
+	state := &SessionState{
+		SchemaVersion:       2,
+		SessionID:           "test-final-plan",
+		StartedAt:           "2026-01-30T14:00:00Z",
+		LastUpdated:         "2026-01-30T14:30:00Z",
+		Iteration:           0,
+		Status:              StatusInterrupted,
+		Phase:               PhaseFinalPlanValidation,
+		Verdict:             "",
+		TasksFile:           tasksFile,
+		TasksFileHash:       computeTestHash(tasksContent),
+		AICli:               "claude",
+		ImplModel:           "opus",
+		ValModel:            "opus",
+		MaxIterations:       20,
+		MaxInadmissible:     5,
+		Learnings:           LearningsState{},
+		CrossValidation:     CrossValState{},
+		FinalPlanValidation: PlanValState{AI: "claude", Model: "opus", Available: true},
+		TasksValidation:     TasksValState{AI: "claude", Model: "opus", Available: true},
+		Schedule:            ScheduleState{},
+		RetryState:          RetryState{Attempt: 1, Delay: 5},
+	}
+
+	// Resume should succeed
+	err = ResumeFromState(state, tasksFile, false)
+	assert.NoError(t, err, "Resume should succeed for final_plan_validation phase")
+
+	// Verify state was updated correctly
+	assert.Equal(t, StatusInProgress, state.Status, "Status should be IN_PROGRESS after resume")
+	assert.Equal(t, PhaseFinalPlanValidation, state.Phase, "Phase should be preserved")
+	assert.Equal(t, 0, state.Iteration, "Iteration should remain 0 for final_plan_validation")
+}
