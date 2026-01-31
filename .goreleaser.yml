@@ -44,6 +44,7 @@ brews:
     repository:
       owner: CodexForgeBR
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: "https://github.com/CodexForgeBR/cli-tools"
     description: "Dual-model AI implementation-validation loop orchestrator"
     license: "MIT"
