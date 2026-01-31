@@ -542,9 +542,9 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 				ValModel:        "opus",
 				MaxIterations:   20,
 				MaxInadmissible: 5,
-				LastFeedback:    "Feedback with special chars: \n\t\"quotes\", 'apostrophes', & ampersands, < less than, > greater than, 你好世界",
-				Learnings:       LearningsState{},
-				CrossValidation: CrossValState{},
+				LastFeedback:        "Feedback with special chars: \n\t\"quotes\", 'apostrophes', & ampersands, < less than, > greater than, 你好世界",
+				Learnings:           LearningsState{},
+				CrossValidation:     CrossValState{},
 				FinalPlanValidation: PlanValState{AI: "claude", Model: "opus", Available: true},
 				TasksValidation:     TasksValState{AI: "claude", Model: "opus", Available: true},
 				Schedule:            ScheduleState{},
@@ -634,19 +634,19 @@ func TestSaveStateCreatesMissingDirectory(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "missing", "nested", ".ralph-loop")
 
 	state := &SessionState{
-		SchemaVersion:   2,
-		SessionID:       "test-session",
-		StartedAt:       "2026-01-30T14:30:00Z",
-		LastUpdated:     "2026-01-30T14:30:00Z",
-		TasksFile:       "/tmp/tasks.md",
-		TasksFileHash:   "hash123",
-		AICli:           "claude",
-		ImplModel:       "opus",
-		ValModel:        "opus",
-		MaxIterations:   20,
-		MaxInadmissible: 5,
-		Learnings:       LearningsState{},
-		CrossValidation: CrossValState{},
+		SchemaVersion:       2,
+		SessionID:           "test-session",
+		StartedAt:           "2026-01-30T14:30:00Z",
+		LastUpdated:         "2026-01-30T14:30:00Z",
+		TasksFile:           "/tmp/tasks.md",
+		TasksFileHash:       "hash123",
+		AICli:               "claude",
+		ImplModel:           "opus",
+		ValModel:            "opus",
+		MaxIterations:       20,
+		MaxInadmissible:     5,
+		Learnings:           LearningsState{},
+		CrossValidation:     CrossValState{},
 		FinalPlanValidation: PlanValState{AI: "claude", Model: "opus", Available: true},
 		TasksValidation:     TasksValState{AI: "claude", Model: "opus", Available: true},
 		Schedule:            ScheduleState{},
@@ -672,22 +672,22 @@ func TestMultipleLoadsSameData(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	original := &SessionState{
-		SchemaVersion: 2,
-		SessionID:     "test-consistency",
-		StartedAt:     "2026-01-30T14:30:00Z",
-		LastUpdated:   "2026-01-30T14:35:00Z",
-		Iteration:     5,
-		Status:        "IN_PROGRESS",
-		Phase:         "validation",
-		TasksFile:     "/tmp/test/tasks.md",
-		TasksFileHash: "abc123",
-		AICli:         "claude",
-		ImplModel:     "opus",
-		ValModel:      "opus",
-		MaxIterations: 20,
-		MaxInadmissible: 5,
-		Learnings:       LearningsState{Enabled: 1, File: "/tmp/learnings.md"},
-		CrossValidation: CrossValState{},
+		SchemaVersion:       2,
+		SessionID:           "test-consistency",
+		StartedAt:           "2026-01-30T14:30:00Z",
+		LastUpdated:         "2026-01-30T14:35:00Z",
+		Iteration:           5,
+		Status:              "IN_PROGRESS",
+		Phase:               "validation",
+		TasksFile:           "/tmp/test/tasks.md",
+		TasksFileHash:       "abc123",
+		AICli:               "claude",
+		ImplModel:           "opus",
+		ValModel:            "opus",
+		MaxIterations:       20,
+		MaxInadmissible:     5,
+		Learnings:           LearningsState{Enabled: 1, File: "/tmp/learnings.md"},
+		CrossValidation:     CrossValState{},
 		FinalPlanValidation: PlanValState{AI: "claude", Model: "opus", Available: true},
 		TasksValidation:     TasksValState{AI: "claude", Model: "opus", Available: true},
 		Schedule:            ScheduleState{},
@@ -712,19 +712,19 @@ func TestSaveState_InvalidDirectory(t *testing.T) {
 	invalidDir := "/dev/null/cannot-create-dir"
 
 	state := &SessionState{
-		SchemaVersion:   2,
-		SessionID:       "test-invalid-dir",
-		StartedAt:       "2026-01-30T14:30:00Z",
-		LastUpdated:     "2026-01-30T14:30:00Z",
-		TasksFile:       "/tmp/tasks.md",
-		TasksFileHash:   "hash123",
-		AICli:           "claude",
-		ImplModel:       "opus",
-		ValModel:        "opus",
-		MaxIterations:   20,
-		MaxInadmissible: 5,
-		Learnings:       LearningsState{},
-		CrossValidation: CrossValState{},
+		SchemaVersion:       2,
+		SessionID:           "test-invalid-dir",
+		StartedAt:           "2026-01-30T14:30:00Z",
+		LastUpdated:         "2026-01-30T14:30:00Z",
+		TasksFile:           "/tmp/tasks.md",
+		TasksFileHash:       "hash123",
+		AICli:               "claude",
+		ImplModel:           "opus",
+		ValModel:            "opus",
+		MaxIterations:       20,
+		MaxInadmissible:     5,
+		Learnings:           LearningsState{},
+		CrossValidation:     CrossValState{},
 		FinalPlanValidation: PlanValState{AI: "claude", Model: "opus", Available: true},
 		TasksValidation:     TasksValState{AI: "claude", Model: "opus", Available: true},
 		Schedule:            ScheduleState{},
@@ -769,22 +769,26 @@ func TestSaveState_WriteFileError(t *testing.T) {
 	require.NoError(t, err)
 
 	// Make sure to restore permissions for cleanup
-	defer os.Chmod(readOnlyDir, 0755)
+	defer func() {
+		if err := os.Chmod(readOnlyDir, 0755); err != nil {
+			t.Logf("failed to restore permissions on %s: %v", readOnlyDir, err)
+		}
+	}()
 
 	state := &SessionState{
-		SchemaVersion:   2,
-		SessionID:       "test-write-error",
-		StartedAt:       "2026-01-30T14:30:00Z",
-		LastUpdated:     "2026-01-30T14:30:00Z",
-		TasksFile:       "/tmp/tasks.md",
-		TasksFileHash:   "hash123",
-		AICli:           "claude",
-		ImplModel:       "opus",
-		ValModel:        "opus",
-		MaxIterations:   20,
-		MaxInadmissible: 5,
-		Learnings:       LearningsState{},
-		CrossValidation: CrossValState{},
+		SchemaVersion:       2,
+		SessionID:           "test-write-error",
+		StartedAt:           "2026-01-30T14:30:00Z",
+		LastUpdated:         "2026-01-30T14:30:00Z",
+		TasksFile:           "/tmp/tasks.md",
+		TasksFileHash:       "hash123",
+		AICli:               "claude",
+		ImplModel:           "opus",
+		ValModel:            "opus",
+		MaxIterations:       20,
+		MaxInadmissible:     5,
+		Learnings:           LearningsState{},
+		CrossValidation:     CrossValState{},
 		FinalPlanValidation: PlanValState{AI: "claude", Model: "opus", Available: true},
 		TasksValidation:     TasksValState{AI: "claude", Model: "opus", Available: true},
 		Schedule:            ScheduleState{},
@@ -832,7 +836,11 @@ func TestValidateState_HashFileError(t *testing.T) {
 	require.NoError(t, err)
 
 	// Make sure to restore permissions for cleanup
-	defer os.Chmod(tasksFile, 0644)
+	defer func() {
+		if err := os.Chmod(tasksFile, 0644); err != nil {
+			t.Logf("failed to restore permissions on %s: %v", tasksFile, err)
+		}
+	}()
 
 	state := &SessionState{
 		SchemaVersion: 2,
