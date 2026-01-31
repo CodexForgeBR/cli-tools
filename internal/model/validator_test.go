@@ -98,8 +98,8 @@ func TestIsCodexModelHint(t *testing.T) {
 		{"chatgpt-4o", true},
 		{"text-davinci-003", true},
 		{"ft:gpt-3.5-turbo", true},
-		{"GPT-4", true},     // case insensitive
-		{"DEFAULT", true},   // case insensitive
+		{"GPT-4", true},   // case insensitive
+		{"DEFAULT", true}, // case insensitive
 		{"opus", false},
 		{"sonnet", false},
 		{"haiku", false},

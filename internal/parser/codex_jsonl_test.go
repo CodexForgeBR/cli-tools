@@ -56,13 +56,13 @@ func TestParseCodexJSONL_AssistantMessage(t *testing.T) {
 			expected: "All tasks completed successfully.",
 		},
 		{
-			name: "assistant message with RALPH_STATUS",
-			input: "{\"type\":\"item.completed\",\"item\":{\"type\":\"assistant_message\",\"text\":\"All tasks completed successfully.\\n\\n```json\\n{\\\"RALPH_STATUS\\\":{\\\"completed_tasks\\\":[\\\"T001\\\"],\\\"blocked_tasks\\\":[],\\\"notes\\\":\\\"Done\\\"}}\\n```\"}}",
+			name:     "assistant message with RALPH_STATUS",
+			input:    "{\"type\":\"item.completed\",\"item\":{\"type\":\"assistant_message\",\"text\":\"All tasks completed successfully.\\n\\n```json\\n{\\\"RALPH_STATUS\\\":{\\\"completed_tasks\\\":[\\\"T001\\\"],\\\"blocked_tasks\\\":[],\\\"notes\\\":\\\"Done\\\"}}\\n```\"}}",
 			expected: "All tasks completed successfully.\n\n```json\n{\"RALPH_STATUS\":{\"completed_tasks\":[\"T001\"],\"blocked_tasks\":[],\"notes\":\"Done\"}}\n```",
 		},
 		{
-			name: "assistant message with RALPH_LEARNINGS",
-			input: `{"type":"item.completed","item":{"type":"assistant_message","text":"RALPH_LEARNINGS:\n- Pattern: Use interfaces for testability"}}`,
+			name:     "assistant message with RALPH_LEARNINGS",
+			input:    `{"type":"item.completed","item":{"type":"assistant_message","text":"RALPH_LEARNINGS:\n- Pattern: Use interfaces for testability"}}`,
 			expected: "RALPH_LEARNINGS:\n- Pattern: Use interfaces for testability",
 		},
 	}

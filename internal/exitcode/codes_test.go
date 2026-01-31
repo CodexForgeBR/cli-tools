@@ -3,8 +3,9 @@ package exitcode_test
 import (
 	"testing"
 
-	"github.com/CodexForgeBR/cli-tools/internal/exitcode"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/CodexForgeBR/cli-tools/internal/exitcode"
 )
 
 func TestExitCodeValues(t *testing.T) {
