@@ -29,10 +29,10 @@ func TestParseSchedule_HH_MM_Future(t *testing.T) {
 	result, err := ParseSchedule(input)
 	require.NoError(t, err)
 
-	// Should be today
-	assert.Equal(t, now.Year(), result.Year())
-	assert.Equal(t, now.Month(), result.Month())
-	assert.Equal(t, now.Day(), result.Day())
+	// Should resolve to the correct date (may wrap to tomorrow near midnight)
+	assert.Equal(t, futureTime.Year(), result.Year())
+	assert.Equal(t, futureTime.Month(), result.Month())
+	assert.Equal(t, futureTime.Day(), result.Day())
 	assert.Equal(t, futureTime.Hour(), result.Hour())
 	assert.Equal(t, futureTime.Minute(), result.Minute())
 
