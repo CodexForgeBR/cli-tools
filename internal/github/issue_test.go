@@ -20,6 +20,20 @@ func TestParseIssueRef_ValidReferences(t *testing.T) {
 		expectedNum   int
 	}{
 		{
+			name:          "plain number",
+			ref:           "136",
+			expectedOwner: "",
+			expectedRepo:  "",
+			expectedNum:   136,
+		},
+		{
+			name:          "plain number single digit",
+			ref:           "1",
+			expectedOwner: "",
+			expectedRepo:  "",
+			expectedNum:   1,
+		},
+		{
 			name:          "standard reference",
 			ref:           "CodexForgeBR/cli-tools#42",
 			expectedOwner: "CodexForgeBR",
@@ -27,7 +41,7 @@ func TestParseIssueRef_ValidReferences(t *testing.T) {
 			expectedNum:   42,
 		},
 		{
-			name:          "single digit number",
+			name:          "single digit number with repo",
 			ref:           "owner/repo#1",
 			expectedOwner: "owner",
 			expectedRepo:  "repo",
@@ -135,20 +149,6 @@ func TestFetchIssue_InvalidInputs(t *testing.T) {
 		number      int
 		expectedErr string
 	}{
-		{
-			name:        "empty owner",
-			owner:       "",
-			repo:        "repo",
-			number:      1,
-			expectedErr: "owner cannot be empty",
-		},
-		{
-			name:        "empty repo",
-			owner:       "owner",
-			repo:        "",
-			number:      1,
-			expectedErr: "repo cannot be empty",
-		},
 		{
 			name:        "zero issue number",
 			owner:       "owner",

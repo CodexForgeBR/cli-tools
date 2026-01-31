@@ -10,22 +10,33 @@ import (
 	"strings"
 )
 
-// ParseIssueRef parses a GitHub issue reference in format "owner/repo#number".
-// Returns the owner, repo name, issue number, and any parsing error.
+// ParseIssueRef parses a GitHub issue reference.
+// Accepts plain numbers (e.g., "136") or "owner/repo#number" format.
+// When a plain number is given, owner and repo are empty — the caller
+// should pass the number directly to `gh issue view` which infers the
+// repo from the current directory.
 //
 // Examples:
+//   - "136" → ("", "", 136, nil)
 //   - "CodexForgeBR/cli-tools#42" → ("CodexForgeBR", "cli-tools", 42, nil)
-//   - "owner/repo#123" → ("owner", "repo", 123, nil)
 //   - "invalid" → ("", "", 0, error)
 func ParseIssueRef(ref string) (owner, repo string, number int, err error) {
 	if ref == "" {
 		return "", "", 0, fmt.Errorf("empty issue reference")
 	}
 
+	// Try plain number first (e.g., "136")
+	if n, parseErr := strconv.Atoi(ref); parseErr == nil {
+		if n <= 0 {
+			return "", "", 0, fmt.Errorf("issue number must be positive, got %d", n)
+		}
+		return "", "", n, nil
+	}
+
 	// Split by '#' to separate repo path from issue number
 	parts := strings.Split(ref, "#")
 	if len(parts) != 2 {
-		return "", "", 0, fmt.Errorf("invalid issue reference format: expected 'owner/repo#number', got %q", ref)
+		return "", "", 0, fmt.Errorf("invalid issue reference format: expected number or 'owner/repo#number', got %q", ref)
 	}
 
 	// Parse the repo path (owner/repo)
@@ -54,36 +65,40 @@ func ParseIssueRef(ref string) (owner, repo string, number int, err error) {
 
 // FetchIssue fetches a GitHub issue using the gh CLI tool.
 // Returns the issue content (title and body) as a string.
+// When owner and repo are empty, gh infers the repository from the
+// current directory's git remote (matching the bash script behavior).
 //
 // Requires gh CLI to be installed and authenticated.
 func FetchIssue(owner, repo string, number int) (string, error) {
-	if owner == "" {
-		return "", fmt.Errorf("owner cannot be empty")
-	}
-	if repo == "" {
-		return "", fmt.Errorf("repo cannot be empty")
-	}
 	if number <= 0 {
 		return "", fmt.Errorf("issue number must be positive, got %d", number)
 	}
 
-	// Use gh CLI to fetch the issue
-	// Format: gh issue view NUMBER --repo OWNER/REPO --json title,body --jq '.title + "\n\n" + .body'
-	repoPath := fmt.Sprintf("%s/%s", owner, repo)
-	cmd := exec.Command("gh", "issue", "view", strconv.Itoa(number),
-		"--repo", repoPath,
+	// Build gh command args
+	args := []string{"issue", "view", strconv.Itoa(number),
 		"--json", "title,body",
-		"--jq", `.title + "\n\n" + .body`)
+		"--jq", `.title + "\n\n" + .body`}
+
+	// Only add --repo if owner/repo were explicitly provided
+	if owner != "" && repo != "" {
+		args = append(args, "--repo", fmt.Sprintf("%s/%s", owner, repo))
+	}
+
+	cmd := exec.Command("gh", args...)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("failed to fetch issue %s/%s#%d: %w\nOutput: %s",
-			owner, repo, number, err, string(output))
+		ref := fmt.Sprintf("#%d", number)
+		if owner != "" {
+			ref = fmt.Sprintf("%s/%s#%d", owner, repo, number)
+		}
+		return "", fmt.Errorf("failed to fetch issue %s: %w\nOutput: %s",
+			ref, err, string(output))
 	}
 
 	content := strings.TrimSpace(string(output))
 	if content == "" {
-		return "", fmt.Errorf("issue %s/%s#%d has no content", owner, repo, number)
+		return "", fmt.Errorf("issue #%d has no content", number)
 	}
 
 	return content, nil

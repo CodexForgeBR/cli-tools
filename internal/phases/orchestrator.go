@@ -381,7 +381,11 @@ func (o *Orchestrator) phaseFetchIssue() {
 
 	issueRef := o.Config.GithubIssue
 	o.session.GithubIssue = &issueRef
-	logging.Info(fmt.Sprintf("Fetched and cached issue %s/%s#%d", owner, repo, number))
+	if owner != "" {
+		logging.Info(fmt.Sprintf("Fetched and cached issue %s/%s#%d", owner, repo, number))
+	} else {
+		logging.Info(fmt.Sprintf("Fetched and cached issue #%d", number))
+	}
 }
 
 func (o *Orchestrator) phaseTasksValidation(ctx context.Context) int {
