@@ -517,11 +517,11 @@ func (o *Orchestrator) phaseIterationLoop(ctx context.Context) int {
 		// Run implementation phase
 		implOutputPath := filepath.Join(iterDir, "implementation-output.txt")
 		implConfig := ImplementationConfig{
-			Runner:         o.ImplRunner,
-			Iteration:      o.session.Iteration,
-			OutputPath:     implOutputPath,
-			FirstPrompt:    implPrompt,
-			ContinuePrompt: implPrompt, // For consistency
+			Runner:           o.ImplRunner,
+			Iteration:        o.session.Iteration,
+			OutputPath:       implOutputPath,
+			FirstPrompt:      implPrompt,
+			ContinuePrompt:   implPrompt, // For consistency
 			ExtractLearnings: o.Config.EnableLearnings,
 		}
 

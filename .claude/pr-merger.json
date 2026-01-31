@@ -1,0 +1,8 @@
+{
+  "testCommand": "go test -race ./...",
+  "buildCommand": "go build ./cmd/ralph-loop/",
+  "preMergeChecks": ["build", "test"],
+  "requiredChecks": ["test", "lint", "build"],
+  "maxCIFixIterations": 5,
+  "maxCodeRabbitIterations": 5
+}

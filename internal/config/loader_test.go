@@ -270,22 +270,22 @@ func TestLoadWithPrecedenceInvalidProjectPath(t *testing.T) {
 func TestApplyMapToConfigSetsAllStringFields(t *testing.T) {
 	cfg := config.NewDefaultConfig()
 	m := map[string]string{
-		"AI_CLI":            "codex",
-		"IMPL_MODEL":        "gpt-4",
-		"VAL_MODEL":         "gpt-3.5",
-		"CROSS_AI":          "claude",
-		"CROSS_MODEL":       "sonnet",
-		"FINAL_PLAN_AI":     "codex",
-		"FINAL_PLAN_MODEL":  "gpt-4",
-		"TASKS_VAL_AI":      "claude",
-		"TASKS_VAL_MODEL":   "opus",
-		"TASKS_FILE":        "/tmp/tasks.md",
+		"AI_CLI":             "codex",
+		"IMPL_MODEL":         "gpt-4",
+		"VAL_MODEL":          "gpt-3.5",
+		"CROSS_AI":           "claude",
+		"CROSS_MODEL":        "sonnet",
+		"FINAL_PLAN_AI":      "codex",
+		"FINAL_PLAN_MODEL":   "gpt-4",
+		"TASKS_VAL_AI":       "claude",
+		"TASKS_VAL_MODEL":    "opus",
+		"TASKS_FILE":         "/tmp/tasks.md",
 		"ORIGINAL_PLAN_FILE": "/tmp/plan.md",
-		"GITHUB_ISSUE":      "https://github.com/org/repo/issues/1",
-		"LEARNINGS_FILE":    "/tmp/learnings.md",
-		"NOTIFY_WEBHOOK":    "https://example.com/hook",
-		"NOTIFY_CHANNEL":    "slack",
-		"NOTIFY_CHAT_ID":    "99999",
+		"GITHUB_ISSUE":       "https://github.com/org/repo/issues/1",
+		"LEARNINGS_FILE":     "/tmp/learnings.md",
+		"NOTIFY_WEBHOOK":     "https://example.com/hook",
+		"NOTIFY_CHANNEL":     "slack",
+		"NOTIFY_CHAT_ID":     "99999",
 	}
 
 	config.ApplyMapToConfig(cfg, m)
@@ -332,7 +332,7 @@ func TestApplyMapToConfigSetsBooleanFields(t *testing.T) {
 
 	// Set to non-default values.
 	m := map[string]string{
-		"CROSS_VALIDATE":  "false",
+		"CROSS_VALIDATE":   "false",
 		"ENABLE_LEARNINGS": "false",
 		"VERBOSE":          "true",
 	}
