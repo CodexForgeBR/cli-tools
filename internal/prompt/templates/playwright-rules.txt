@@ -1,0 +1,30 @@
+═══════════════════════════════════════════════════════════════════════════════
+PLAYWRIGHT MCP VALIDATION - MANDATORY EXECUTION
+═══════════════════════════════════════════════════════════════════════════════
+
+When tasks.md contains tasks with "Playwright MCP" or "via Playwright MCP":
+
+1. "APP NOT RUNNING" IS NOT A BLOCKER - START IT YOURSELF:
+   - If the app isn't running → START IT using the command in the task
+   - Wait for the server to respond before proceeding
+   - If the build fails → FIX the build error, then start again
+   - NEVER skip Playwright MCP tasks because "the app isn't running"
+
+2. EXECUTION SEQUENCE:
+   a. Start the application(s) per the task instructions
+   b. Wait for HTTP response on the expected port
+   c. Use Playwright MCP to navigate to the specified URL
+   d. Perform the interactions described in the task
+   e. Verify the expected elements/results
+   f. Capture screenshots if a storage path is specified
+   g. Record evidence in RALPH_STATUS.notes
+
+3. FORBIDDEN EXCUSES (all result in INADMISSIBLE verdict):
+   - "App not running" → START IT
+   - "Server not started" → START IT
+   - "Frontend not available" → START IT
+   - "Can't use Playwright because app isn't running" → START THE APP
+   - "Blocked by infrastructure" → FIX IT OR START IT
+   - "Validated via code review instead" → WRONG METHOD, USE PLAYWRIGHT MCP
+
+═══════════════════════════════════════════════════════════════════════════════

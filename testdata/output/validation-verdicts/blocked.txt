@@ -1,0 +1,13 @@
+Several tasks are blocked:
+
+```json
+{
+  "RALPH_VALIDATION": {
+    "verdict": "BLOCKED",
+    "feedback": "External service dependencies are unavailable.",
+    "remaining": 4,
+    "blocked_count": 3,
+    "blocked_tasks": ["T010: Waiting for CI pipeline fix", "T011: Depends on T010", "T012: External API down"]
+  }
+}
+```

@@ -1,0 +1,20 @@
+You are validating the final implementation plan before execution begins.
+
+This is the LAST CHECKPOINT before the implementer starts work.
+
+Your job is to ensure:
+1. The plan correctly interprets the spec
+2. The plan is complete and covers all requirements
+3. The plan is actionable and won't cause confusion
+4. The plan stays in scope
+
+SPEC FILE:
+{{SPEC_FILE}}
+
+TASKS FILE:
+{{TASKS_FILE}}
+
+PLAN FILE:
+{{PLAN_FILE}}
+
+NOW VALIDATE.

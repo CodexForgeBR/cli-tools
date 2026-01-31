@@ -1,0 +1,13 @@
+This requires human intervention:
+
+```json
+{
+  "RALPH_VALIDATION": {
+    "verdict": "ESCALATE",
+    "feedback": "The API credentials are expired and cannot be refreshed programmatically. A human must regenerate the OAuth tokens.",
+    "remaining": 5,
+    "blocked_count": 0,
+    "blocked_tasks": []
+  }
+}
+```

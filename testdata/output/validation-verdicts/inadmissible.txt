@@ -1,0 +1,13 @@
+Inadmissible practices detected:
+
+```json
+{
+  "RALPH_VALIDATION": {
+    "verdict": "INADMISSIBLE",
+    "feedback": "Tests duplicate production logic instead of calling actual production code. Test helper re-implements the validation algorithm.",
+    "remaining": 2,
+    "blocked_count": 0,
+    "blocked_tasks": []
+  }
+}
+```

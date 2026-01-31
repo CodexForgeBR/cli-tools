@@ -1,0 +1,5 @@
+# Global ralph-loop configuration
+AI_CLI=claude
+MAX_ITERATIONS=30
+VERBOSE=1
+NOTIFY_CHANNEL=telegram

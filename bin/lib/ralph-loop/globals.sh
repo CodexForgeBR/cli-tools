@@ -56,6 +56,12 @@ SCHEDULE_INPUT=""           # Raw user input for --start-at
 SCHEDULE_TARGET_EPOCH=""    # Parsed target time in epoch seconds
 SCHEDULE_TARGET_HUMAN=""    # Human-readable target time for display
 
+# Rate limit tracking
+RATE_LIMIT_RESET_EPOCH=""
+RATE_LIMIT_RESET_HUMAN=""
+RATE_LIMIT_RESET_TZ=""
+RATE_LIMIT_BUFFER_SECONDS=60
+
 # State tracking for resume
 CURRENT_PHASE=""
 LAST_FEEDBACK=""

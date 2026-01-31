@@ -1,0 +1,162 @@
+package schedule
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestWaitUntil_PastTime(t *testing.T) {
+	// Should return immediately for past times
+	past := time.Now().Add(-1 * time.Hour)
+
+	start := time.Now()
+	err := WaitUntil(context.Background(), past)
+	duration := time.Since(start)
+
+	require.NoError(t, err)
+	assert.Less(t, duration, 100*time.Millisecond, "should return immediately for past time")
+}
+
+func TestWaitUntil_FutureTime(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping wait test in short mode")
+	}
+
+	// Wait for a short duration (500ms)
+	target := time.Now().Add(500 * time.Millisecond)
+
+	start := time.Now()
+	err := WaitUntil(context.Background(), target)
+	duration := time.Since(start)
+
+	require.NoError(t, err)
+
+	// Should wait approximately the right amount of time (with some tolerance)
+	assert.GreaterOrEqual(t, duration, 450*time.Millisecond, "should wait at least 450ms")
+	assert.Less(t, duration, 700*time.Millisecond, "should not wait more than 700ms")
+}
+
+func TestWaitUntil_ContextCancellation(t *testing.T) {
+	// Create a context that will be cancelled
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Wait for a time in the future
+	target := time.Now().Add(10 * time.Second)
+
+	// Cancel after 100ms
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	err := WaitUntil(ctx, target)
+	duration := time.Since(start)
+
+	// Should return with context cancelled error
+	assert.Error(t, err)
+	assert.Equal(t, context.Canceled, err)
+
+	// Should return quickly (not wait the full 10 seconds)
+	assert.Less(t, duration, 1*time.Second, "should cancel quickly")
+}
+
+func TestWaitUntil_ContextTimeout(t *testing.T) {
+	// Create a context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	// Wait for a time far in the future
+	target := time.Now().Add(10 * time.Second)
+
+	start := time.Now()
+	err := WaitUntil(ctx, target)
+	duration := time.Since(start)
+
+	// Should return with deadline exceeded error
+	assert.Error(t, err)
+	assert.Equal(t, context.DeadlineExceeded, err)
+
+	// Should timeout around 200ms
+	assert.GreaterOrEqual(t, duration, 200*time.Millisecond, "should wait at least 200ms")
+	assert.Less(t, duration, 500*time.Millisecond, "should timeout before 500ms")
+}
+
+func TestWaitUntil_CountdownUpdates(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping countdown test in short mode")
+	}
+
+	// This test verifies that the countdown ticker works
+	// We wait for 15 seconds to ensure we get at least one ticker update
+	target := time.Now().Add(15 * time.Second)
+
+	// Use a context with timeout to avoid waiting the full 15 seconds
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	err := WaitUntil(ctx, target)
+	duration := time.Since(start)
+
+	// Should timeout (we cancelled before target)
+	assert.Error(t, err)
+	assert.Equal(t, context.DeadlineExceeded, err)
+
+	// Should have waited long enough to see ticker updates (at least 10 seconds for one update)
+	assert.GreaterOrEqual(t, duration, 10*time.Second, "should wait long enough to see ticker update")
+}
+
+func TestWaitUntil_ImmediateReturn(t *testing.T) {
+	// Test that WaitUntil returns immediately for a time that's exactly now
+	now := time.Now()
+
+	start := time.Now()
+	err := WaitUntil(context.Background(), now)
+	duration := time.Since(start)
+
+	require.NoError(t, err)
+	assert.Less(t, duration, 100*time.Millisecond, "should return immediately")
+}
+
+func TestWaitUntil_VeryShortWait(t *testing.T) {
+	// Test a very short wait (1 millisecond)
+	target := time.Now().Add(1 * time.Millisecond)
+
+	start := time.Now()
+	err := WaitUntil(context.Background(), target)
+	duration := time.Since(start)
+
+	require.NoError(t, err)
+	// Should complete quickly but not necessarily exactly 1ms due to scheduler
+	assert.Less(t, duration, 100*time.Millisecond, "should complete quickly")
+}
+
+func TestWaitUntil_MultipleCallsInSequence(t *testing.T) {
+	// Verify we can call WaitUntil multiple times
+	for i := 0; i < 3; i++ {
+		target := time.Now().Add(50 * time.Millisecond)
+		err := WaitUntil(context.Background(), target)
+		require.NoError(t, err)
+	}
+}
+
+func TestWaitUntil_CancelledContext(t *testing.T) {
+	// Test with an already-cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	target := time.Now().Add(10 * time.Second)
+
+	start := time.Now()
+	err := WaitUntil(ctx, target)
+	duration := time.Since(start)
+
+	assert.Error(t, err)
+	assert.Equal(t, context.Canceled, err)
+	assert.Less(t, duration, 100*time.Millisecond, "should return immediately with cancelled context")
+}

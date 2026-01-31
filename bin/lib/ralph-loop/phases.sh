@@ -53,15 +53,15 @@ generate_impl_prompt() {
 
 # Generate validation prompt
 generate_val_prompt() {
-    local impl_output=$1
-    _generate_validation_prompt "$TASKS_FILE" "$impl_output"
+    local impl_output_file=$1
+    _generate_validation_prompt "$TASKS_FILE" "$impl_output_file"
 }
 
 # Generate cross-validation prompt
 generate_cross_val_prompt() {
-    local impl_output=$1
-    local val_output=$2
-    _generate_cross_validation_prompt "$TASKS_FILE" "$impl_output" "$val_output"
+    local val_output_file=$1
+    local impl_output_file=$2
+    _generate_cross_validation_prompt "$TASKS_FILE" "$val_output_file" "$impl_output_file"
 }
 
 # Generate tasks validation prompt
@@ -287,11 +287,8 @@ run_validation() {
     log_info "AI CLI: $AI_CLI" >&2
     log_info "Model: $VAL_MODEL" >&2
 
-    local impl_output
-    impl_output=$(cat "$impl_output_file" 2>/dev/null || echo "No implementation output available")
-
     local prompt
-    prompt=$(generate_val_prompt "$impl_output")
+    prompt=$(generate_val_prompt "$impl_output_file")
 
     # Run AI with timeout and inactivity detection
     # Use saved retry state if resuming, otherwise start fresh
@@ -484,7 +481,7 @@ run_tasks_validation() {
     log_info "Model: $TASKS_VAL_MODEL" >&2
 
     local prompt
-    prompt=$(generate_tasks_validation_prompt)
+    prompt=$(generate_tasks_validation_prompt "$ORIGINAL_PLAN_FILE" "$TASKS_FILE")
 
     set +e  # Temporarily disable exit on error
     if [[ "$TASKS_VAL_AI" == "codex" ]]; then
@@ -548,7 +545,7 @@ run_final_plan_validation() {
     log_info "Model: $FINAL_PLAN_MODEL" >&2
 
     local prompt
-    prompt=$(generate_final_plan_validation_prompt)
+    prompt=$(generate_final_plan_validation_prompt "$ORIGINAL_PLAN_FILE" "$TASKS_FILE" "$ORIGINAL_PLAN_FILE")
 
     set +e  # Temporarily disable exit on error
     if [[ "$FINAL_PLAN_AI" == "codex" ]]; then

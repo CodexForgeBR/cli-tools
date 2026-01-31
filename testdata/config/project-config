@@ -1,0 +1,5 @@
+# Project-specific ralph-loop configuration
+IMPL_MODEL=sonnet
+VAL_MODEL=sonnet
+MAX_TURNS=50
+ENABLE_LEARNINGS=1

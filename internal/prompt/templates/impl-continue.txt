@@ -1,0 +1,42 @@
+Continue implementing tasks from: {{TASKS_FILE}}
+
+VALIDATION CAUGHT YOUR LIES:
+{{FEEDBACK}}
+
+YOU MUST FIX YOUR LIES NOW.
+
+REMEMBER:
+- YOU CANNOT CHANGE SCOPE
+- YOU CANNOT DECIDE TASKS ARE N/A
+- YOU CANNOT REWRITE TASKS
+- IF TASK SAYS REMOVE → REMOVE IT
+- NO EXCUSES. NO OPINIONS. JUST DO IT.
+
+CRITICAL - DO NOT WRITE TESTS FOR NON-EXISTENT FUNCTIONALITY:
+- If you write a test that expects a keyboard shortcut → IMPLEMENT THE HANDLER FIRST
+- If you write a test that calls a function → CREATE THE FUNCTION FIRST
+- If you write a test that hits an API endpoint → REGISTER THE ROUTE FIRST
+- If you write a test that expects a UI element → RENDER THE ELEMENT FIRST
+- Implementation FIRST, then tests. Not tests INSTEAD OF implementation.
+- Tests for features you didn't implement = INADMISSIBLE = Automatic failure
+
+{{EVIDENCE_RULES}}
+
+{{PLAYWRIGHT_RULES}}
+
+{{LEARNINGS_SECTION}}
+
+When done, output:
+```json
+{
+  "RALPH_STATUS": {
+    "completed_tasks": ["task IDs you ACTUALLY completed"],
+    "blocked_tasks": ["tasks with REAL blockers only"],
+    "notes": "what you did"
+  }
+}
+```
+
+{{LEARNINGS_OUTPUT}}
+
+FIX YOUR MISTAKES NOW.

@@ -1,0 +1,9 @@
+
+═══════════════════════════════════════════════════════════════════════════════
+LEARNINGS FROM PREVIOUS ITERATIONS:
+Read these FIRST before starting work. They contain important patterns and gotchas.
+═══════════════════════════════════════════════════════════════════════════════
+
+{{LEARNINGS}}
+
+Pay special attention to the 'Codebase Patterns' section at the top.

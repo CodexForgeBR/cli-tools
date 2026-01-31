@@ -1,0 +1,50 @@
+{
+    "schema_version": 2,
+    "session_id": "ralph-20260130-143000",
+    "started_at": "2026-01-30T14:30:00Z",
+    "last_updated": "2026-01-30T14:35:00Z",
+    "iteration": 3,
+    "status": "IN_PROGRESS",
+    "phase": "validation",
+    "verdict": "NEEDS_MORE_WORK",
+    "tasks_file": "/tmp/test/tasks.md",
+    "tasks_file_hash": "abc123def456",
+    "ai_cli": "claude",
+    "implementation_model": "opus",
+    "validation_model": "opus",
+    "max_iterations": 20,
+    "max_inadmissible": 5,
+    "original_plan_file": null,
+    "github_issue": null,
+    "learnings": {
+        "enabled": 1,
+        "file": "/tmp/test/.ralph-loop/learnings.md"
+    },
+    "cross_validation": {
+        "enabled": 1,
+        "ai": "codex",
+        "model": "default",
+        "available": true
+    },
+    "final_plan_validation": {
+        "ai": "codex",
+        "model": "default",
+        "available": true
+    },
+    "tasks_validation": {
+        "ai": "claude",
+        "model": "opus",
+        "available": true
+    },
+    "schedule": {
+        "enabled": false,
+        "target_epoch": 0,
+        "target_human": ""
+    },
+    "retry_state": {
+        "attempt": 1,
+        "delay": 5
+    },
+    "inadmissible_count": 0,
+    "last_feedback": ""
+}

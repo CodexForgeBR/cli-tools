@@ -1,0 +1,15 @@
+
+═══════════════════════════════════════════════════════════════════════════════
+LEARNINGS OUTPUT:
+═══════════════════════════════════════════════════════════════════════════════
+
+At the end of your work, output any NEW learnings in this format:
+```
+RALPH_LEARNINGS:
+- Pattern: [describe any reusable pattern you discovered]
+- Gotcha: [describe any gotcha or non-obvious requirement]
+- Context: [describe any useful context for future iterations]
+```
+
+Only include GENERAL learnings that would help future iterations.
+Do NOT include task-specific details.

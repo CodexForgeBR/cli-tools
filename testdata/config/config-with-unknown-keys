@@ -1,0 +1,6 @@
+# Config with unknown keys that should be ignored
+AI_CLI=claude
+UNKNOWN_KEY=should_be_ignored
+MAX_ITERATIONS=15
+ANOTHER_BAD_KEY=skip_this
+VERBOSE=1
