@@ -29,19 +29,19 @@ func SetVerbose(v bool) {
 	verbose = v
 }
 
-// Info prints an informational message to stdout in blue.
+// Info prints an informational message to stderr in blue.
 func Info(msg string) {
-	fmt.Println(infoPrefix("[INFO]") + " " + msg)
+	fmt.Fprintln(os.Stderr, infoPrefix("[INFO]")+" "+msg)
 }
 
-// Success prints a success message to stdout in green.
+// Success prints a success message to stderr in green.
 func Success(msg string) {
-	fmt.Println(successPrefix("[SUCCESS]") + " " + msg)
+	fmt.Fprintln(os.Stderr, successPrefix("[SUCCESS]")+" "+msg)
 }
 
-// Warn prints a warning message to stdout in yellow.
+// Warn prints a warning message to stderr in yellow.
 func Warn(msg string) {
-	fmt.Println(warnPrefix("[WARN]") + " " + msg)
+	fmt.Fprintln(os.Stderr, warnPrefix("[WARN]")+" "+msg)
 }
 
 // Error prints an error message to stderr in red.
@@ -49,20 +49,20 @@ func Error(msg string) {
 	fmt.Fprintln(os.Stderr, errorPrefix("[ERROR]")+" "+msg)
 }
 
-// Phase prints a phase header to stdout in cyan, surrounded by separator lines.
+// Phase prints a phase header to stderr in cyan, surrounded by separator lines.
 func Phase(msg string) {
 	sep := phasePrefix("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println(sep)
-	fmt.Println(phasePrefix("[PHASE]") + " " + msg)
-	fmt.Println(sep)
+	fmt.Fprintln(os.Stderr, sep)
+	fmt.Fprintln(os.Stderr, phasePrefix("[PHASE]")+" "+msg)
+	fmt.Fprintln(os.Stderr, sep)
 }
 
-// Debug prints a debug message to stdout in blue, only when verbose mode is enabled.
+// Debug prints a debug message to stderr in blue, only when verbose mode is enabled.
 func Debug(msg string) {
 	if !verbose {
 		return
 	}
-	fmt.Println(debugPrefix("[DEBUG]") + " " + msg)
+	fmt.Fprintln(os.Stderr, debugPrefix("[DEBUG]")+" "+msg)
 }
 
 // FormatDuration converts a duration in seconds to a human-readable string.
