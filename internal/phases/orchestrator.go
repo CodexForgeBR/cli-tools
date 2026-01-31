@@ -288,14 +288,24 @@ func (o *Orchestrator) phaseResumeCheck() int {
 		// Restore config from saved state so the orchestrator uses the same
 		// settings as the original session. This must happen BEFORE
 		// ResumeFromState so ValidateState has the correct tasks file path.
-		// CLI flag overrides are applied by the precedence chain in main.go
-		// before Run() is called, so any explicit overrides take effect on
-		// top of these restored values.
-		o.Config.AIProvider = existing.AICli
-		o.Config.ImplModel = existing.ImplModel
-		o.Config.ValModel = existing.ValModel
-		o.Config.MaxIterations = existing.MaxIterations
-		o.Config.MaxInadmissible = existing.MaxInadmissible
+		// Only restore values for keys NOT explicitly overridden via CLI
+		// flags, so that e.g. `--resume --max-iterations 10` takes effect.
+		cli := o.Config.CLIOverrides
+		if !cli["AI_CLI"] {
+			o.Config.AIProvider = existing.AICli
+		}
+		if !cli["IMPL_MODEL"] {
+			o.Config.ImplModel = existing.ImplModel
+		}
+		if !cli["VAL_MODEL"] {
+			o.Config.ValModel = existing.ValModel
+		}
+		if !cli["MAX_ITERATIONS"] {
+			o.Config.MaxIterations = existing.MaxIterations
+		}
+		if !cli["MAX_INADMISSIBLE"] {
+			o.Config.MaxInadmissible = existing.MaxInadmissible
+		}
 		if o.Config.TasksFile == "" {
 			o.Config.TasksFile = existing.TasksFile
 		}
@@ -440,28 +450,43 @@ func (o *Orchestrator) phaseTasksValidation(ctx context.Context) int {
 }
 
 func (o *Orchestrator) phaseScheduleWait(ctx context.Context) int {
-	if o.resumed || o.Config.StartAt == "" {
-		return -1
+	var target time.Time
+
+	if o.resumed {
+		// On resume, only wait if a schedule was previously saved and the
+		// target time is still in the future. Otherwise skip the wait.
+		if o.session == nil || !o.session.Schedule.Enabled {
+			return -1
+		}
+		target = time.Unix(o.session.Schedule.TargetEpoch, 0)
+		if !target.After(time.Now()) {
+			return -1
+		}
+	} else {
+		if o.Config.StartAt == "" {
+			return -1
+		}
+
+		var err error
+		target, err = schedule.ParseSchedule(o.Config.StartAt)
+		if err != nil {
+			logging.Error(fmt.Sprintf("Invalid schedule: %v", err))
+			return exitcode.Error
+		}
+
+		// Save schedule state
+		o.session.Schedule = state.ScheduleState{
+			Enabled:     true,
+			TargetEpoch: target.Unix(),
+			TargetHuman: target.Format("2006-01-02 15:04:05"),
+		}
+		o.session.Phase = state.PhaseWaitingForSchedule
+		if err := state.SaveState(o.session, o.StateDir); err != nil {
+			logging.Warn(fmt.Sprintf("Failed to save schedule state: %v", err))
+		}
 	}
 
 	logging.Phase("Waiting for scheduled start time")
-
-	target, err := schedule.ParseSchedule(o.Config.StartAt)
-	if err != nil {
-		logging.Error(fmt.Sprintf("Invalid schedule: %v", err))
-		return exitcode.Error
-	}
-
-	// Save schedule state
-	o.session.Schedule = state.ScheduleState{
-		Enabled:     true,
-		TargetEpoch: target.Unix(),
-		TargetHuman: target.Format("2006-01-02 15:04:05"),
-	}
-	o.session.Phase = state.PhaseWaitingForSchedule
-	if err := state.SaveState(o.session, o.StateDir); err != nil {
-		logging.Warn(fmt.Sprintf("Failed to save schedule state: %v", err))
-	}
 
 	if err := schedule.WaitUntil(ctx, target); err != nil {
 		if ctx.Err() != nil {

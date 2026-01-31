@@ -88,6 +88,11 @@ type Config struct {
 	Status           bool
 	Cancel           bool
 	StartAt          string
+
+	// CLIOverrides records which config keys were explicitly set via CLI
+	// flags. During resume, saved-state values are only restored for keys
+	// that are NOT present in this map, so explicit CLI flags always win.
+	CLIOverrides map[string]bool
 }
 
 // NewDefaultConfig returns a Config populated with all built-in default values.
