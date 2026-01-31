@@ -13,13 +13,13 @@ import (
 
 // TestRunPostValidationChain_SuccessFlow verifies complete success path
 func TestRunPostValidationChain_SuccessFlow(t *testing.T) {
-	// Setup: cross-val confirms, final-plan confirms
+	// Setup: cross-val confirms, final-plan approves
 	crossValRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", "Cross validation passed"),
+		OutputData: makeCrossValidationJSON("CONFIRMED", "Cross validation passed"),
 	}
 
 	finalPlanRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", "Final plan validated"),
+		OutputData: makeFinalPlanValidationJSON("APPROVE", "Final plan validated"),
 	}
 
 	config := PostValidationConfig{
@@ -40,11 +40,11 @@ func TestRunPostValidationChain_SuccessFlow(t *testing.T) {
 // TestRunPostValidationChain_CrossValReject verifies cross-val rejection returns to impl
 func TestRunPostValidationChain_CrossValReject(t *testing.T) {
 	crossValRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("NEEDS_MORE_WORK", "Cross validation found issues"),
+		OutputData: makeCrossValidationJSON("REJECTED", "Cross validation found issues"),
 	}
 
 	finalPlanRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", "Should not reach this"),
+		OutputData: makeFinalPlanValidationJSON("APPROVE", "Should not reach this"),
 	}
 
 	config := PostValidationConfig{
@@ -67,11 +67,11 @@ func TestRunPostValidationChain_CrossValReject(t *testing.T) {
 // TestRunPostValidationChain_FinalPlanReject verifies final-plan rejection returns to impl
 func TestRunPostValidationChain_FinalPlanReject(t *testing.T) {
 	crossValRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", "Cross validation passed"),
+		OutputData: makeCrossValidationJSON("CONFIRMED", "Cross validation passed"),
 	}
 
 	finalPlanRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("NEEDS_MORE_WORK", "Implementation doesn't match original plan"),
+		OutputData: makeFinalPlanValidationJSON("REJECT", "Implementation doesn't match original plan"),
 	}
 
 	config := PostValidationConfig{
@@ -94,11 +94,11 @@ func TestRunPostValidationChain_FinalPlanReject(t *testing.T) {
 // TestRunPostValidationChain_CrossValDisabled verifies skipping cross-val when disabled
 func TestRunPostValidationChain_CrossValDisabled(t *testing.T) {
 	crossValRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", "Should not be called"),
+		OutputData: makeCrossValidationJSON("CONFIRMED", "Should not be called"),
 	}
 
 	finalPlanRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", "Final plan validated"),
+		OutputData: makeFinalPlanValidationJSON("APPROVE", "Final plan validated"),
 	}
 
 	config := PostValidationConfig{
@@ -120,11 +120,11 @@ func TestRunPostValidationChain_CrossValDisabled(t *testing.T) {
 // TestRunPostValidationChain_FinalPlanDisabled verifies skipping final-plan when disabled
 func TestRunPostValidationChain_FinalPlanDisabled(t *testing.T) {
 	crossValRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", "Cross validation passed"),
+		OutputData: makeCrossValidationJSON("CONFIRMED", "Cross validation passed"),
 	}
 
 	finalPlanRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", "Should not be called"),
+		OutputData: makeFinalPlanValidationJSON("APPROVE", "Should not be called"),
 	}
 
 	config := PostValidationConfig{
@@ -146,11 +146,11 @@ func TestRunPostValidationChain_FinalPlanDisabled(t *testing.T) {
 // TestRunPostValidationChain_BothDisabled verifies immediate success when both disabled
 func TestRunPostValidationChain_BothDisabled(t *testing.T) {
 	crossValRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", "Should not be called"),
+		OutputData: makeCrossValidationJSON("CONFIRMED", "Should not be called"),
 	}
 
 	finalPlanRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", "Should not be called"),
+		OutputData: makeFinalPlanValidationJSON("APPROVE", "Should not be called"),
 	}
 
 	config := PostValidationConfig{
@@ -169,14 +169,14 @@ func TestRunPostValidationChain_BothDisabled(t *testing.T) {
 	assert.Equal(t, 0, finalPlanRunner.CallCount, "final-plan should NOT be called")
 }
 
-// TestRunPostValidationChain_CrossValEscalate verifies escalation from cross-val
-func TestRunPostValidationChain_CrossValEscalate(t *testing.T) {
+// TestRunPostValidationChain_CrossValUnknownVerdict verifies unknown verdict exits with error
+func TestRunPostValidationChain_CrossValUnknownVerdict(t *testing.T) {
 	crossValRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("ESCALATE", "Need human review for security"),
+		OutputData: makeCrossValidationJSON("ESCALATE", "Need human review for security"),
 	}
 
 	finalPlanRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", "Should not reach this"),
+		OutputData: makeFinalPlanValidationJSON("APPROVE", "Should not reach this"),
 	}
 
 	config := PostValidationConfig{
@@ -189,19 +189,19 @@ func TestRunPostValidationChain_CrossValEscalate(t *testing.T) {
 	ctx := context.Background()
 	result := RunPostValidationChain(ctx, config)
 
-	assert.Equal(t, "exit", result.Action, "escalate should exit")
-	assert.Equal(t, exitcode.Escalate, result.ExitCode)
-	assert.Equal(t, 0, finalPlanRunner.CallCount, "final-plan should NOT be called after escalate")
+	assert.Equal(t, "exit", result.Action, "unknown verdict should exit with error")
+	assert.Equal(t, exitcode.Error, result.ExitCode)
+	assert.Equal(t, 0, finalPlanRunner.CallCount, "final-plan should NOT be called after unknown verdict")
 }
 
-// TestRunPostValidationChain_FinalPlanEscalate verifies escalation from final-plan
-func TestRunPostValidationChain_FinalPlanEscalate(t *testing.T) {
+// TestRunPostValidationChain_FinalPlanUnknownVerdict verifies unknown verdict exits with error
+func TestRunPostValidationChain_FinalPlanUnknownVerdict(t *testing.T) {
 	crossValRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", "Cross validation passed"),
+		OutputData: makeCrossValidationJSON("CONFIRMED", "Cross validation passed"),
 	}
 
 	finalPlanRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("ESCALATE", "Implementation deviates from original plan"),
+		OutputData: makeFinalPlanValidationJSON("ESCALATE", "Implementation deviates from original plan"),
 	}
 
 	config := PostValidationConfig{
@@ -214,86 +214,10 @@ func TestRunPostValidationChain_FinalPlanEscalate(t *testing.T) {
 	ctx := context.Background()
 	result := RunPostValidationChain(ctx, config)
 
-	assert.Equal(t, "exit", result.Action, "escalate should exit")
-	assert.Equal(t, exitcode.Escalate, result.ExitCode)
+	assert.Equal(t, "exit", result.Action, "unknown verdict should exit with error")
+	assert.Equal(t, exitcode.Error, result.ExitCode)
 	assert.Equal(t, 1, crossValRunner.CallCount, "cross-val should be called first")
 	assert.Equal(t, 1, finalPlanRunner.CallCount, "final-plan should be called after cross-val")
-}
-
-// TestRunPostValidationChain_CrossValBlocked verifies blocked from cross-val
-func TestRunPostValidationChain_CrossValBlocked(t *testing.T) {
-	crossValRunner := &MockAIRunner{
-		OutputData: makeValidationJSONWithBlocked("BLOCKED", "All tasks blocked", []string{"Task A", "Task B"}),
-	}
-
-	finalPlanRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", "Should not reach this"),
-	}
-
-	config := PostValidationConfig{
-		CrossValRunner:   crossValRunner,
-		FinalPlanRunner:  finalPlanRunner,
-		CrossValEnabled:  true,
-		FinalPlanEnabled: true,
-	}
-
-	ctx := context.Background()
-	result := RunPostValidationChain(ctx, config)
-
-	assert.Equal(t, "exit", result.Action, "fully blocked should exit")
-	assert.Equal(t, exitcode.Blocked, result.ExitCode)
-	assert.Equal(t, 0, finalPlanRunner.CallCount, "final-plan should NOT be called after blocked")
-}
-
-// TestRunPostValidationChain_FinalPlanBlocked verifies blocked from final-plan
-func TestRunPostValidationChain_FinalPlanBlocked(t *testing.T) {
-	crossValRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", "Cross validation passed"),
-	}
-
-	finalPlanRunner := &MockAIRunner{
-		OutputData: makeValidationJSONWithBlocked("BLOCKED", "Cannot proceed", []string{"Blocker"}),
-	}
-
-	config := PostValidationConfig{
-		CrossValRunner:   crossValRunner,
-		FinalPlanRunner:  finalPlanRunner,
-		CrossValEnabled:  true,
-		FinalPlanEnabled: true,
-	}
-
-	ctx := context.Background()
-	result := RunPostValidationChain(ctx, config)
-
-	assert.Equal(t, "exit", result.Action, "blocked should exit")
-	assert.Equal(t, exitcode.Blocked, result.ExitCode)
-}
-
-// TestRunPostValidationChain_CrossValInadmissible verifies inadmissible from cross-val
-func TestRunPostValidationChain_CrossValInadmissible(t *testing.T) {
-	crossValRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("INADMISSIBLE", "Invalid output format"),
-	}
-
-	finalPlanRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", "Should not reach this"),
-	}
-
-	config := PostValidationConfig{
-		CrossValRunner:    crossValRunner,
-		FinalPlanRunner:   finalPlanRunner,
-		CrossValEnabled:   true,
-		FinalPlanEnabled:  true,
-		InadmissibleCount: 0,
-		MaxInadmissible:   5,
-	}
-
-	ctx := context.Background()
-	result := RunPostValidationChain(ctx, config)
-
-	assert.Equal(t, "continue", result.Action, "inadmissible under threshold should continue")
-	assert.Equal(t, 0, result.ExitCode)
-	assert.Equal(t, 0, finalPlanRunner.CallCount, "final-plan should NOT be called after inadmissible")
 }
 
 // TestRunPostValidationChain_ContextCancellation verifies context cancellation handling
@@ -302,11 +226,11 @@ func TestRunPostValidationChain_ContextCancellation(t *testing.T) {
 	cancel() // Cancel immediately
 
 	crossValRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", "Should not complete"),
+		OutputData: makeCrossValidationJSON("CONFIRMED", "Should not complete"),
 	}
 
 	finalPlanRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", "Should not complete"),
+		OutputData: makeFinalPlanValidationJSON("APPROVE", "Should not complete"),
 	}
 
 	config := PostValidationConfig{
@@ -330,7 +254,7 @@ func TestRunPostValidationChain_RunnerErrors(t *testing.T) {
 		}
 
 		finalPlanRunner := &MockAIRunner{
-			OutputData: makeValidationJSON("COMPLETE", "Should not reach"),
+			OutputData: makeFinalPlanValidationJSON("APPROVE", "Should not reach"),
 		}
 
 		config := PostValidationConfig{
@@ -350,7 +274,7 @@ func TestRunPostValidationChain_RunnerErrors(t *testing.T) {
 
 	t.Run("final-plan runner error", func(t *testing.T) {
 		crossValRunner := &MockAIRunner{
-			OutputData: makeValidationJSON("COMPLETE", "Cross validation passed"),
+			OutputData: makeCrossValidationJSON("CONFIRMED", "Cross validation passed"),
 		}
 
 		finalPlanRunner := &MockAIRunner{
@@ -389,10 +313,10 @@ func TestRunPostValidationChain_ComplexSequence(t *testing.T) {
 		finalPlanCallCount int
 	}{
 		{
-			name:               "both complete",
-			crossValVerdict:    "COMPLETE",
+			name:               "both pass",
+			crossValVerdict:    "CONFIRMED",
 			crossValFeedback:   "",
-			finalPlanVerdict:   "COMPLETE",
+			finalPlanVerdict:   "APPROVE",
 			finalPlanFeedback:  "",
 			crossValEnabled:    true,
 			finalPlanEnabled:   true,
@@ -403,10 +327,10 @@ func TestRunPostValidationChain_ComplexSequence(t *testing.T) {
 			finalPlanCallCount: 1,
 		},
 		{
-			name:               "cross-val needs work",
-			crossValVerdict:    "NEEDS_MORE_WORK",
+			name:               "cross-val rejected",
+			crossValVerdict:    "REJECTED",
 			crossValFeedback:   "Fix bugs",
-			finalPlanVerdict:   "COMPLETE",
+			finalPlanVerdict:   "APPROVE",
 			finalPlanFeedback:  "",
 			crossValEnabled:    true,
 			finalPlanEnabled:   true,
@@ -417,10 +341,10 @@ func TestRunPostValidationChain_ComplexSequence(t *testing.T) {
 			finalPlanCallCount: 0,
 		},
 		{
-			name:               "final-plan needs work",
-			crossValVerdict:    "COMPLETE",
+			name:               "final-plan rejected",
+			crossValVerdict:    "CONFIRMED",
 			crossValFeedback:   "",
-			finalPlanVerdict:   "NEEDS_MORE_WORK",
+			finalPlanVerdict:   "REJECT",
 			finalPlanFeedback:  "Align with plan",
 			crossValEnabled:    true,
 			finalPlanEnabled:   true,
@@ -431,10 +355,10 @@ func TestRunPostValidationChain_ComplexSequence(t *testing.T) {
 			finalPlanCallCount: 1,
 		},
 		{
-			name:               "only cross-val enabled and complete",
-			crossValVerdict:    "COMPLETE",
+			name:               "only cross-val enabled and confirmed",
+			crossValVerdict:    "CONFIRMED",
 			crossValFeedback:   "",
-			finalPlanVerdict:   "COMPLETE",
+			finalPlanVerdict:   "APPROVE",
 			finalPlanFeedback:  "",
 			crossValEnabled:    true,
 			finalPlanEnabled:   false,
@@ -445,10 +369,10 @@ func TestRunPostValidationChain_ComplexSequence(t *testing.T) {
 			finalPlanCallCount: 0,
 		},
 		{
-			name:               "only final-plan enabled and complete",
-			crossValVerdict:    "COMPLETE",
+			name:               "only final-plan enabled and approved",
+			crossValVerdict:    "CONFIRMED",
 			crossValFeedback:   "",
-			finalPlanVerdict:   "COMPLETE",
+			finalPlanVerdict:   "APPROVE",
 			finalPlanFeedback:  "",
 			crossValEnabled:    false,
 			finalPlanEnabled:   true,
@@ -463,11 +387,11 @@ func TestRunPostValidationChain_ComplexSequence(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			crossValRunner := &MockAIRunner{
-				OutputData: makeValidationJSON(tt.crossValVerdict, tt.crossValFeedback),
+				OutputData: makeCrossValidationJSON(tt.crossValVerdict, tt.crossValFeedback),
 			}
 
 			finalPlanRunner := &MockAIRunner{
-				OutputData: makeValidationJSON(tt.finalPlanVerdict, tt.finalPlanFeedback),
+				OutputData: makeFinalPlanValidationJSON(tt.finalPlanVerdict, tt.finalPlanFeedback),
 			}
 
 			config := PostValidationConfig{
@@ -493,9 +417,9 @@ func TestRunPostValidationChain_ComplexSequence(t *testing.T) {
 
 // Helper functions
 
-func makeValidationJSON(verdict string, feedback string) string {
+func makeCrossValidationJSON(verdict string, feedback string) string {
 	data := map[string]interface{}{
-		"RALPH_VALIDATION": map[string]interface{}{
+		"RALPH_CROSS_VALIDATION": map[string]interface{}{
 			"verdict":  verdict,
 			"feedback": feedback,
 		},
@@ -504,12 +428,11 @@ func makeValidationJSON(verdict string, feedback string) string {
 	return string(jsonData)
 }
 
-func makeValidationJSONWithBlocked(verdict string, feedback string, blockedTasks []string) string {
+func makeFinalPlanValidationJSON(verdict string, feedback string) string {
 	data := map[string]interface{}{
-		"RALPH_VALIDATION": map[string]interface{}{
-			"verdict":       verdict,
-			"feedback":      feedback,
-			"blocked_tasks": blockedTasks,
+		"RALPH_FINAL_PLAN_VALIDATION": map[string]interface{}{
+			"verdict":  verdict,
+			"feedback": feedback,
 		},
 	}
 	jsonData, _ := json.Marshal(data)
@@ -560,7 +483,7 @@ func TestRunPostValidationChain_CrossValParseError(t *testing.T) {
 	ctx := context.Background()
 	result := RunPostValidationChain(ctx, config)
 
-	// ParseValidation should return nil, nil for unrecognized text (no RALPH_VALIDATION found)
+	// ParseCrossValidation should return nil, nil for unrecognized text (no RALPH_CROSS_VALIDATION found)
 	// which leads to the "parsed == nil" branch
 	assert.Equal(t, "exit", result.Action, "should exit when output has no validation block")
 	assert.Equal(t, exitcode.Error, result.ExitCode)
@@ -568,7 +491,7 @@ func TestRunPostValidationChain_CrossValParseError(t *testing.T) {
 
 // TestRunPostValidationChain_CrossValNilParsed tests runCrossValidation when parser returns nil.
 func TestRunPostValidationChain_CrossValNilParsed(t *testing.T) {
-	// Output with no RALPH_VALIDATION block → parser returns nil
+	// Output with no RALPH_CROSS_VALIDATION block → parser returns nil
 	crossValRunner := &MockAIRunner{
 		OutputData: "Some text output without any JSON validation block",
 	}
@@ -644,7 +567,7 @@ func TestRunPostValidationChain_FinalPlanNilParsed(t *testing.T) {
 // TestRunPostValidationChain_CrossValMalformedJSON tests runCrossValidation when output has malformed JSON with key.
 func TestRunPostValidationChain_CrossValMalformedJSON(t *testing.T) {
 	crossValRunner := &MockAIRunner{
-		OutputData: `RALPH_VALIDATION {broken json {{`,
+		OutputData: `RALPH_CROSS_VALIDATION {broken json {{`,
 	}
 
 	config := PostValidationConfig{
@@ -663,7 +586,7 @@ func TestRunPostValidationChain_CrossValMalformedJSON(t *testing.T) {
 // TestRunPostValidationChain_FinalPlanMalformedJSON tests runFinalPlanValidation when output has malformed JSON.
 func TestRunPostValidationChain_FinalPlanMalformedJSON(t *testing.T) {
 	finalPlanRunner := &MockAIRunner{
-		OutputData: `RALPH_VALIDATION {broken json {{`,
+		OutputData: `RALPH_FINAL_PLAN_VALIDATION {broken json {{`,
 	}
 
 	config := PostValidationConfig{
@@ -685,7 +608,7 @@ func TestRunPostValidationChain_FinalPlanContextCancelled(t *testing.T) {
 	cancel() // Cancel immediately
 
 	finalPlanRunner := &MockAIRunner{
-		OutputData: makeValidationJSON("COMPLETE", ""),
+		OutputData: makeFinalPlanValidationJSON("APPROVE", ""),
 	}
 
 	config := PostValidationConfig{

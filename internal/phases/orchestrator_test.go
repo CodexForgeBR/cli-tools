@@ -61,6 +61,30 @@ func makeOrchestratorValidationJSON(verdict string, feedback string) string {
 	return string(jsonData)
 }
 
+// Helper function to create cross-validation JSON output (RALPH_CROSS_VALIDATION)
+func makeOrchestratorCrossValidationJSON(verdict string, feedback string) string {
+	data := map[string]interface{}{
+		"RALPH_CROSS_VALIDATION": map[string]interface{}{
+			"verdict":  verdict,
+			"feedback": feedback,
+		},
+	}
+	jsonData, _ := json.Marshal(data)
+	return string(jsonData)
+}
+
+// Helper function to create final-plan validation JSON output (RALPH_FINAL_PLAN_VALIDATION)
+func makeOrchestratorFinalPlanJSON(verdict string, feedback string) string {
+	data := map[string]interface{}{
+		"RALPH_FINAL_PLAN_VALIDATION": map[string]interface{}{
+			"verdict":  verdict,
+			"feedback": feedback,
+		},
+	}
+	jsonData, _ := json.Marshal(data)
+	return string(jsonData)
+}
+
 // Helper function to create validation JSON with blocked tasks
 func makeOrchestratorValidationJSONWithBlocked(verdict string, feedback string, blockedTasks []string) string {
 	data := map[string]interface{}{
@@ -457,7 +481,7 @@ func TestOrchestrator_CrossValidationFlow(t *testing.T) {
 	// Cross validation confirms
 	crossRunner := &MockOrchestratorAIRunner{
 		RunFunc: func(ctx context.Context, prompt string, outputPath string) error {
-			_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+			_ = os.WriteFile(outputPath, []byte(makeOrchestratorCrossValidationJSON("CONFIRMED", "")), 0644)
 			return nil
 		},
 	}
@@ -1972,10 +1996,10 @@ func TestOrchestrator_PostValidationContinue(t *testing.T) {
 			crossCallCount++
 			if crossCallCount == 1 {
 				// First cross-val rejects → should continue
-				_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("NEEDS_MORE_WORK", "Cross-val found issues")), 0644)
+				_ = os.WriteFile(outputPath, []byte(makeOrchestratorCrossValidationJSON("REJECTED", "Cross-val found issues")), 0644)
 			} else {
 				// Second cross-val confirms
-				_ = os.WriteFile(outputPath, []byte(makeOrchestratorValidationJSON("COMPLETE", "")), 0644)
+				_ = os.WriteFile(outputPath, []byte(makeOrchestratorCrossValidationJSON("CONFIRMED", "")), 0644)
 			}
 			return nil
 		},

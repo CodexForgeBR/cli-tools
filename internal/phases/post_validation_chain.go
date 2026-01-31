@@ -2,23 +2,27 @@ package phases
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/CodexForgeBR/cli-tools/internal/ai"
 	"github.com/CodexForgeBR/cli-tools/internal/exitcode"
 	"github.com/CodexForgeBR/cli-tools/internal/parser"
+	"github.com/CodexForgeBR/cli-tools/internal/prompt"
 )
 
 // PostValidationConfig configures the post-validation chain.
 type PostValidationConfig struct {
-	CrossValRunner    ai.AIRunner
-	FinalPlanRunner   ai.AIRunner
-	CrossValEnabled   bool
-	FinalPlanEnabled  bool
-	InadmissibleCount int
-	MaxInadmissible   int
+	CrossValRunner   ai.AIRunner
+	FinalPlanRunner  ai.AIRunner
+	CrossValEnabled  bool
+	FinalPlanEnabled bool
+	// File paths for prompt building
+	TasksFile      string
+	ImplOutputFile string
+	ValOutputFile  string
+	SpecFile       string // For final-plan validation
+	PlanFile       string // For final-plan validation
 }
 
 // PostValidationResult contains the outcome of the post-validation chain.
@@ -72,12 +76,15 @@ func runCrossValidation(ctx context.Context, cfg PostValidationConfig) PostValid
 		}
 	}
 
+	// Build the cross-validation prompt using proper prompt builder
+	crossValPrompt := prompt.BuildCrossValidationPrompt(cfg.TasksFile, cfg.ValOutputFile, cfg.ImplOutputFile)
+
 	// Create temporary output file for cross-validation
 	tmpDir := os.TempDir()
 	outputPath := filepath.Join(tmpDir, "cross-validation-output.json")
 
 	// Run cross-validation
-	err := cfg.CrossValRunner.Run(ctx, "cross-validation-prompt", outputPath)
+	err := cfg.CrossValRunner.Run(ctx, crossValPrompt, outputPath)
 	if err != nil {
 		return PostValidationResult{
 			Action:   "exit",
@@ -85,7 +92,7 @@ func runCrossValidation(ctx context.Context, cfg PostValidationConfig) PostValid
 		}
 	}
 
-	// Parse validation result
+	// Parse cross-validation result
 	output, err := os.ReadFile(outputPath)
 	if err != nil {
 		return PostValidationResult{
@@ -94,7 +101,7 @@ func runCrossValidation(ctx context.Context, cfg PostValidationConfig) PostValid
 		}
 	}
 
-	parsed, err := parser.ParseValidation(string(output))
+	parsed, err := parser.ParseCrossValidation(string(output))
 	if err != nil {
 		return PostValidationResult{
 			Action:   "exit",
@@ -109,46 +116,24 @@ func runCrossValidation(ctx context.Context, cfg PostValidationConfig) PostValid
 		}
 	}
 
-	// Process the verdict
-	verdictInput := VerdictInput{
-		Verdict:           parsed.Verdict,
-		Feedback:          parsed.Feedback,
-		Remaining:         parsed.Remaining,
-		BlockedCount:      parsed.BlockedCount,
-		BlockedTasks:      parsed.BlockedTasks,
-		InadmissibleCount: cfg.InadmissibleCount,
-		MaxInadmissible:   cfg.MaxInadmissible,
-	}
-
-	verdictResult := ProcessVerdict(verdictInput)
-
-	// Map verdict result to post-validation result
-	switch verdictResult.Action {
-	case "exit":
-		// If exiting with success, map to "success" to continue chain
-		if verdictResult.ExitCode == exitcode.Success {
-			return PostValidationResult{
-				Action:   "success",
-				ExitCode: exitcode.Success,
-			}
-		}
-		// Otherwise exit with error code
-		return PostValidationResult{
-			Action:   "exit",
-			ExitCode: verdictResult.ExitCode,
-			Feedback: verdictResult.Feedback,
-		}
-	case "continue":
-		return PostValidationResult{
-			Action:   "continue",
-			ExitCode: 0,
-			Feedback: verdictResult.Feedback,
-		}
-	default:
-		// Unreachable, but handle gracefully
+	// Handle cross-validation verdicts directly (CONFIRMED/REJECTED)
+	switch parsed.Verdict {
+	case "CONFIRMED":
 		return PostValidationResult{
 			Action:   "success",
 			ExitCode: exitcode.Success,
+		}
+	case "REJECTED":
+		return PostValidationResult{
+			Action:   "continue",
+			ExitCode: 0,
+			Feedback: parsed.Feedback,
+		}
+	default:
+		// Unknown verdict
+		return PostValidationResult{
+			Action:   "exit",
+			ExitCode: exitcode.Error,
 		}
 	}
 }
@@ -162,21 +147,23 @@ func runFinalPlanValidation(ctx context.Context, cfg PostValidationConfig) PostV
 		}
 	}
 
+	// Build the final-plan prompt using proper prompt builder
+	finalPlanPrompt := prompt.BuildFinalPlanPrompt(cfg.SpecFile, cfg.TasksFile, cfg.PlanFile)
+
 	// Create temporary output file for final-plan validation
 	tmpDir := os.TempDir()
 	outputPath := filepath.Join(tmpDir, "final-plan-validation-output.json")
 
 	// Run final-plan validation
-	err := cfg.FinalPlanRunner.Run(ctx, "final-plan-validation-prompt", outputPath)
+	err := cfg.FinalPlanRunner.Run(ctx, finalPlanPrompt, outputPath)
 	if err != nil {
 		return PostValidationResult{
 			Action:   "exit",
 			ExitCode: exitcode.Error,
-			Feedback: fmt.Sprintf("final-plan validation error: %v", err),
 		}
 	}
 
-	// Parse validation result
+	// Parse final-plan result
 	output, err := os.ReadFile(outputPath)
 	if err != nil {
 		return PostValidationResult{
@@ -185,7 +172,7 @@ func runFinalPlanValidation(ctx context.Context, cfg PostValidationConfig) PostV
 		}
 	}
 
-	parsed, err := parser.ParseValidation(string(output))
+	parsed, err := parser.ParseFinalPlan(string(output))
 	if err != nil {
 		return PostValidationResult{
 			Action:   "exit",
@@ -200,46 +187,24 @@ func runFinalPlanValidation(ctx context.Context, cfg PostValidationConfig) PostV
 		}
 	}
 
-	// Process the verdict
-	verdictInput := VerdictInput{
-		Verdict:           parsed.Verdict,
-		Feedback:          parsed.Feedback,
-		Remaining:         parsed.Remaining,
-		BlockedCount:      parsed.BlockedCount,
-		BlockedTasks:      parsed.BlockedTasks,
-		InadmissibleCount: cfg.InadmissibleCount,
-		MaxInadmissible:   cfg.MaxInadmissible,
-	}
-
-	verdictResult := ProcessVerdict(verdictInput)
-
-	// Map verdict result to post-validation result
-	switch verdictResult.Action {
-	case "exit":
-		// If exiting with success, map to "success" to allow completion
-		if verdictResult.ExitCode == exitcode.Success {
-			return PostValidationResult{
-				Action:   "success",
-				ExitCode: exitcode.Success,
-			}
-		}
-		// Otherwise exit with error code
-		return PostValidationResult{
-			Action:   "exit",
-			ExitCode: verdictResult.ExitCode,
-			Feedback: verdictResult.Feedback,
-		}
-	case "continue":
-		return PostValidationResult{
-			Action:   "continue",
-			ExitCode: 0,
-			Feedback: verdictResult.Feedback,
-		}
-	default:
-		// Unreachable, but handle gracefully
+	// Handle final-plan verdicts (parser maps APPROVE→CONFIRMED, REJECT→NOT_IMPLEMENTED)
+	switch parsed.Verdict {
+	case "CONFIRMED":
 		return PostValidationResult{
 			Action:   "success",
 			ExitCode: exitcode.Success,
+		}
+	case "NOT_IMPLEMENTED":
+		return PostValidationResult{
+			Action:   "continue",
+			ExitCode: 0,
+			Feedback: parsed.Feedback,
+		}
+	default:
+		// Unknown verdict
+		return PostValidationResult{
+			Action:   "exit",
+			ExitCode: exitcode.Error,
 		}
 	}
 }
