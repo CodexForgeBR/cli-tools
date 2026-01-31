@@ -544,7 +544,7 @@ func (o *Orchestrator) phaseIterationLoop(ctx context.Context) int {
 
 		// Dump implementation output to stderr for visibility
 		if data, err := os.ReadFile(implOutputPath); err == nil && len(data) > 0 {
-			fmt.Fprintln(os.Stderr, string(data))
+			_, _ = os.Stderr.Write(data)
 		}
 		logging.Success("Implementation phase completed")
 
@@ -584,7 +584,7 @@ func (o *Orchestrator) phaseIterationLoop(ctx context.Context) int {
 
 		// Dump validation output to stderr for visibility
 		if data, err := os.ReadFile(valOutputPath); err == nil && len(data) > 0 {
-			fmt.Fprintln(os.Stderr, string(data))
+			_, _ = os.Stderr.Write(data)
 		}
 		logging.Success("Validation phase completed")
 

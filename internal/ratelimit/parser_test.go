@@ -153,7 +153,7 @@ func TestParseTimeWithTimezone_Noon(t *testing.T) {
 }
 
 func TestParseTimeWithTimezone_FutureTime(t *testing.T) {
-	// A time far in the future should resolve to today
+	// A time in the future should resolve to a time after now
 	now := time.Now().UTC()
 	futureHour := (now.Hour() + 2) % 24
 	timeStr := time.Date(2000, 1, 1, futureHour, 0, 0, 0, time.UTC).Format("15:04")
@@ -162,8 +162,8 @@ func TestParseTimeWithTimezone_FutureTime(t *testing.T) {
 	require.NoError(t, err)
 
 	resetTime := time.Unix(epoch, 0).UTC()
-	// Should be today (with buffer), so same day or tomorrow at most
-	assert.GreaterOrEqual(t, resetTime.Day(), now.Day())
+	// Reset time should be in the future (within ~24h)
+	assert.True(t, resetTime.After(now) || resetTime.Equal(now))
 }
 
 func TestParseTimeWithTimezone_PastTimeWrapsToTomorrow(t *testing.T) {

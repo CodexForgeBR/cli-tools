@@ -116,7 +116,7 @@ func runCrossValidation(ctx context.Context, cfg PostValidationConfig) PostValid
 
 	// Dump cross-validation output to stderr for visibility
 	if data, readErr := os.ReadFile(outputPath); readErr == nil && len(data) > 0 {
-		fmt.Fprintln(os.Stderr, string(data))
+		_, _ = os.Stderr.Write(data)
 	}
 
 	// Parse cross-validation result
@@ -209,7 +209,7 @@ func runFinalPlanValidation(ctx context.Context, cfg PostValidationConfig) PostV
 
 	// Dump final-plan output to stderr for visibility
 	if data, readErr := os.ReadFile(outputPath); readErr == nil && len(data) > 0 {
-		fmt.Fprintln(os.Stderr, string(data))
+		_, _ = os.Stderr.Write(data)
 	}
 
 	// Parse final-plan result
