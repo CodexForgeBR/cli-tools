@@ -146,3 +146,159 @@ Finally: {"verdict": "ok"}`
 	require.NotNil(t, result)
 	assert.Equal(t, "ok", result["verdict"])
 }
+
+// TestExtractJSON_NoJSONPresent tests when key exists but no braces found.
+func TestExtractJSON_NoJSONPresent(t *testing.T) {
+	text := "This text mentions the verdict word but has no braces at all"
+
+	result, err := ExtractJSON(text, "verdict")
+	assert.NoError(t, err, "Should return nil when key found but no braces")
+	assert.Nil(t, result)
+}
+
+// TestExtractJSON_DeeplyNestedJSON tests deeply nested JSON structures.
+func TestExtractJSON_DeeplyNestedJSON(t *testing.T) {
+	text := `{
+		"verdict": "pass",
+		"level1": {
+			"level2": {
+				"level3": {
+					"level4": {
+						"level5": {
+							"deep": "value"
+						}
+					}
+				}
+			}
+		}
+	}`
+
+	result, err := ExtractJSON(text, "verdict")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "pass", result["verdict"])
+
+	// Verify deep nesting is preserved
+	l1, ok := result["level1"].(map[string]interface{})
+	require.True(t, ok)
+	l2, ok := l1["level2"].(map[string]interface{})
+	require.True(t, ok)
+	l3, ok := l2["level3"].(map[string]interface{})
+	require.True(t, ok)
+	l4, ok := l3["level4"].(map[string]interface{})
+	require.True(t, ok)
+	l5, ok := l4["level5"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "value", l5["deep"])
+}
+
+// TestExtractFromCodeBlock_NoClosingFence tests malformed code block without closing fence.
+func TestExtractFromCodeBlock_NoClosingFence(t *testing.T) {
+	text := "```json\n{\"verdict\": \"pass\"}\n"
+
+	// ExtractJSON should handle this by falling back to bracket matching
+	result, err := ExtractJSON(text, "verdict")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "pass", result["verdict"])
+}
+
+// TestExtractFromCodeBlock_EmptyCodeBlock tests empty code block.
+func TestExtractFromCodeBlock_EmptyCodeBlock(t *testing.T) {
+	text := "```json\n```\nLater: {\"verdict\": \"found\"}"
+
+	// Should fall back to bracket matching
+	result, err := ExtractJSON(text, "verdict")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "found", result["verdict"])
+}
+
+// TestMatchBraces_NoOpeningBrace tests matchBraces with invalid start.
+func TestMatchBraces_NoOpeningBrace(t *testing.T) {
+	s := "no brace at start"
+	_, ok := matchBraces(s)
+	assert.False(t, ok, "matchBraces should return false when first char is not '{'")
+}
+
+// TestMatchBraces_EmptyString tests matchBraces with empty string.
+func TestMatchBraces_EmptyString(t *testing.T) {
+	_, ok := matchBraces("")
+	assert.False(t, ok, "matchBraces should return false for empty string")
+}
+
+// TestMatchBraces_ComplexNesting tests complex nesting of braces and brackets.
+func TestMatchBraces_ComplexNesting(t *testing.T) {
+	s := `{"a": [1, {"b": [2, 3]}, 4], "c": {"d": {"e": [5, {"f": 6}]}}}`
+	end, ok := matchBraces(s)
+	assert.True(t, ok)
+	assert.Equal(t, len(s)-1, end, "Should find the closing brace at the end")
+}
+
+// TestMatchBraces_UnterminatedString tests unclosed string.
+func TestMatchBraces_UnterminatedString(t *testing.T) {
+	s := `{"key": "unterminated string`
+	_, ok := matchBraces(s)
+	assert.False(t, ok, "Should return false for unterminated string")
+}
+
+// TestExtractByBracketMatch_BackwardMatch tests backward brace matching.
+func TestExtractByBracketMatch_BackwardMatch(t *testing.T) {
+	text := `prefix {"verdict": "pass", "extra": "data"} suffix`
+
+	result, err := ExtractJSON(text, "verdict")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "pass", result["verdict"])
+	assert.Equal(t, "data", result["extra"])
+}
+
+// TestExtractByBracketMatch_InvalidJSONAfterMatch tests when bracket-matched text is invalid JSON.
+func TestExtractByBracketMatch_InvalidJSONAfterMatch(t *testing.T) {
+	text := `The verdict is in this broken json: {verdict: pass}`
+
+	result, err := ExtractJSON(text, "verdict")
+	assert.Error(t, err, "Should return error for invalid JSON")
+	assert.Nil(t, result)
+}
+
+// TestExtractByBracketMatch_BackwardMatchInvalidJSON tests when backward match finds braces but invalid JSON.
+func TestExtractByBracketMatch_BackwardMatchInvalidJSON(t *testing.T) {
+	// Place invalid JSON before the key, and valid JSON after
+	// The backward match should fail to parse, then fall through to forward match
+	text := `{invalid json here} verdict after {"verdict": "pass"}`
+
+	result, err := ExtractJSON(text, "verdict")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "pass", result["verdict"])
+}
+
+// TestExtractByBracketMatch_BackwardBraceUnmarshalFails tests the path where
+// backward brace matching succeeds (braces match and the substring contains
+// the key), but json.Unmarshal fails because the content is not valid JSON.
+// This exercises extractByBracketMatch line 104 (err != nil from Unmarshal).
+func TestExtractByBracketMatch_BackwardBraceUnmarshalFails(t *testing.T) {
+	// {verdict: not-valid-json} has matching braces, contains "verdict",
+	// but is not valid JSON (keys must be quoted). Unmarshal will fail.
+	// The function should then fall through to forward search and find
+	// the valid JSON object.
+	text := `{verdict: not-valid-json} then {"verdict": "recovered"}`
+
+	result, err := ExtractJSON(text, "verdict")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "recovered", result["verdict"])
+}
+
+// TestExtractByBracketMatch_KeyNotFoundInFunction documents that the keyIdx == -1
+// guard in extractByBracketMatch (line 92-94) is unreachable dead code because
+// ExtractJSON already checks strings.Contains(text, key) before calling it.
+func TestExtractByBracketMatch_KeyNotFoundGuardIsDeadCode(t *testing.T) {
+	// ExtractJSON at line 30-32 returns (nil, nil) when key is not in text,
+	// so extractByBracketMatch's own keyIdx == -1 guard can never be reached.
+	// This test documents that the 1 uncovered statement is acceptable.
+	result, err := ExtractJSON("no key here", "verdict")
+	assert.NoError(t, err)
+	assert.Nil(t, result, "ExtractJSON returns nil before extractByBracketMatch is called")
+}

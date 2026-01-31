@@ -169,3 +169,133 @@ func TestRunFinalPlanValidation_NoVerdictFound(t *testing.T) {
 	assert.Equal(t, exitcode.Error, result.ExitCode)
 	assert.Contains(t, result.Feedback, "no final plan validation verdict found")
 }
+
+// mockFinalPlanDeleteRunner succeeds but removes the output file.
+type mockFinalPlanDeleteRunner struct{}
+
+func (m *mockFinalPlanDeleteRunner) Run(ctx context.Context, promptPath string, outputPath string) error {
+	os.Remove(outputPath)
+	return nil
+}
+
+// TestRunFinalPlanValidation_ReadFileError tests handling when the output file cannot be read.
+func TestRunFinalPlanValidation_ReadFileError(t *testing.T) {
+	tmpDir := t.TempDir()
+	specFile := filepath.Join(tmpDir, "spec.md")
+	tasksFile := filepath.Join(tmpDir, "tasks.md")
+	planFile := filepath.Join(tmpDir, "plan.md")
+	require.NoError(t, os.WriteFile(specFile, []byte("# Spec"), 0644))
+	require.NoError(t, os.WriteFile(tasksFile, []byte("# Tasks"), 0644))
+	require.NoError(t, os.WriteFile(planFile, []byte("# Plan"), 0644))
+
+	runner := &mockFinalPlanDeleteRunner{}
+
+	cfg := FinalPlanValidationConfig{
+		Runner:    runner,
+		SpecFile:  specFile,
+		TasksFile: tasksFile,
+		PlanFile:  planFile,
+	}
+
+	result := RunFinalPlanValidation(context.Background(), cfg)
+
+	assert.Equal(t, "exit", result.Action)
+	assert.Equal(t, exitcode.Error, result.ExitCode)
+	assert.Contains(t, result.Feedback, "failed to read final plan validation output")
+}
+
+// TestRunFinalPlanValidation_ParseError tests handling when output contains malformed JSON with key.
+func TestRunFinalPlanValidation_ParseError(t *testing.T) {
+	tmpDir := t.TempDir()
+	specFile := filepath.Join(tmpDir, "spec.md")
+	tasksFile := filepath.Join(tmpDir, "tasks.md")
+	planFile := filepath.Join(tmpDir, "plan.md")
+	require.NoError(t, os.WriteFile(specFile, []byte("# Spec"), 0644))
+	require.NoError(t, os.WriteFile(tasksFile, []byte("# Tasks"), 0644))
+	require.NoError(t, os.WriteFile(planFile, []byte("# Plan"), 0644))
+
+	runner := &mockFinalPlanRunner{
+		output: `RALPH_FINAL_PLAN_VALIDATION {broken json {{`,
+	}
+
+	cfg := FinalPlanValidationConfig{
+		Runner:    runner,
+		SpecFile:  specFile,
+		TasksFile: tasksFile,
+		PlanFile:  planFile,
+	}
+
+	result := RunFinalPlanValidation(context.Background(), cfg)
+
+	assert.Equal(t, "exit", result.Action)
+	assert.Equal(t, exitcode.Error, result.ExitCode)
+	assert.Contains(t, result.Feedback, "failed to parse final plan validation")
+}
+
+// TestRunFinalPlanValidation_PromptWriteError tests handling when prompt file cannot be written.
+func TestRunFinalPlanValidation_PromptWriteError(t *testing.T) {
+	tmpDir := t.TempDir()
+	specFile := filepath.Join(tmpDir, "spec.md")
+	tasksFile := filepath.Join(tmpDir, "tasks.md")
+	planFile := filepath.Join(tmpDir, "plan.md")
+	require.NoError(t, os.WriteFile(specFile, []byte("# Spec"), 0644))
+	require.NoError(t, os.WriteFile(tasksFile, []byte("# Tasks"), 0644))
+	require.NoError(t, os.WriteFile(planFile, []byte("# Plan"), 0644))
+
+	readOnlyDir := filepath.Join(tmpDir, "readonly")
+	require.NoError(t, os.MkdirAll(readOnlyDir, 0555))
+	origTmpDir := os.Getenv("TMPDIR")
+	os.Setenv("TMPDIR", readOnlyDir)
+	defer func() {
+		if origTmpDir != "" {
+			os.Setenv("TMPDIR", origTmpDir)
+		} else {
+			os.Unsetenv("TMPDIR")
+		}
+	}()
+
+	runner := &mockFinalPlanRunner{
+		output: "irrelevant",
+	}
+
+	cfg := FinalPlanValidationConfig{
+		Runner:    runner,
+		SpecFile:  specFile,
+		TasksFile: tasksFile,
+		PlanFile:  planFile,
+	}
+
+	result := RunFinalPlanValidation(context.Background(), cfg)
+
+	assert.Equal(t, "exit", result.Action)
+	assert.Equal(t, exitcode.Error, result.ExitCode)
+	assert.Contains(t, result.Feedback, "failed to write prompt")
+}
+
+// TestRunFinalPlanValidation_RunnerError tests handling when the AI runner returns an error.
+func TestRunFinalPlanValidation_RunnerError(t *testing.T) {
+	tmpDir := t.TempDir()
+	specFile := filepath.Join(tmpDir, "spec.md")
+	tasksFile := filepath.Join(tmpDir, "tasks.md")
+	planFile := filepath.Join(tmpDir, "plan.md")
+	require.NoError(t, os.WriteFile(specFile, []byte("# Spec"), 0644))
+	require.NoError(t, os.WriteFile(tasksFile, []byte("# Tasks"), 0644))
+	require.NoError(t, os.WriteFile(planFile, []byte("# Plan"), 0644))
+
+	runner := &mockFinalPlanRunner{
+		err: assert.AnError,
+	}
+
+	cfg := FinalPlanValidationConfig{
+		Runner:    runner,
+		SpecFile:  specFile,
+		TasksFile: tasksFile,
+		PlanFile:  planFile,
+	}
+
+	result := RunFinalPlanValidation(context.Background(), cfg)
+
+	assert.Equal(t, "exit", result.Action)
+	assert.Equal(t, exitcode.Error, result.ExitCode)
+	assert.Contains(t, result.Feedback, "final plan validation AI error")
+}

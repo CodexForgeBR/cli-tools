@@ -156,3 +156,121 @@ func TestRunTasksValidation_NoVerdictFound(t *testing.T) {
 	assert.Equal(t, exitcode.Error, result.ExitCode)
 	assert.Contains(t, result.Feedback, "no tasks validation verdict found")
 }
+
+// mockTasksValidationDeleteRunner succeeds but removes the output file.
+type mockTasksValidationDeleteRunner struct{}
+
+func (m *mockTasksValidationDeleteRunner) Run(ctx context.Context, promptPath string, outputPath string) error {
+	os.Remove(outputPath)
+	return nil
+}
+
+// TestRunTasksValidation_ReadFileError tests handling when the output file cannot be read.
+func TestRunTasksValidation_ReadFileError(t *testing.T) {
+	tmpDir := t.TempDir()
+	specFile := filepath.Join(tmpDir, "spec.md")
+	tasksFile := filepath.Join(tmpDir, "tasks.md")
+	require.NoError(t, os.WriteFile(specFile, []byte("# Spec"), 0644))
+	require.NoError(t, os.WriteFile(tasksFile, []byte("# Tasks"), 0644))
+
+	runner := &mockTasksValidationDeleteRunner{}
+
+	cfg := TasksValidationConfig{
+		Runner:    runner,
+		SpecFile:  specFile,
+		TasksFile: tasksFile,
+	}
+
+	result := RunTasksValidation(context.Background(), cfg)
+
+	assert.Equal(t, "exit", result.Action)
+	assert.Equal(t, exitcode.Error, result.ExitCode)
+	assert.Contains(t, result.Feedback, "failed to read tasks validation output")
+}
+
+// TestRunTasksValidation_ParseError tests handling when output contains malformed JSON with key.
+func TestRunTasksValidation_ParseError(t *testing.T) {
+	tmpDir := t.TempDir()
+	specFile := filepath.Join(tmpDir, "spec.md")
+	tasksFile := filepath.Join(tmpDir, "tasks.md")
+	require.NoError(t, os.WriteFile(specFile, []byte("# Spec"), 0644))
+	require.NoError(t, os.WriteFile(tasksFile, []byte("# Tasks"), 0644))
+
+	runner := &mockTasksValidationRunner{
+		output: `RALPH_TASKS_VALIDATION {broken json {{`,
+	}
+
+	cfg := TasksValidationConfig{
+		Runner:    runner,
+		SpecFile:  specFile,
+		TasksFile: tasksFile,
+	}
+
+	result := RunTasksValidation(context.Background(), cfg)
+
+	assert.Equal(t, "exit", result.Action)
+	assert.Equal(t, exitcode.Error, result.ExitCode)
+	assert.Contains(t, result.Feedback, "failed to parse tasks validation")
+}
+
+// TestRunTasksValidation_PromptWriteError tests handling when prompt file cannot be written.
+func TestRunTasksValidation_PromptWriteError(t *testing.T) {
+	tmpDir := t.TempDir()
+	specFile := filepath.Join(tmpDir, "spec.md")
+	tasksFile := filepath.Join(tmpDir, "tasks.md")
+	require.NoError(t, os.WriteFile(specFile, []byte("# Spec"), 0644))
+	require.NoError(t, os.WriteFile(tasksFile, []byte("# Tasks"), 0644))
+
+	readOnlyDir := filepath.Join(tmpDir, "readonly")
+	require.NoError(t, os.MkdirAll(readOnlyDir, 0555))
+	origTmpDir := os.Getenv("TMPDIR")
+	os.Setenv("TMPDIR", readOnlyDir)
+	defer func() {
+		if origTmpDir != "" {
+			os.Setenv("TMPDIR", origTmpDir)
+		} else {
+			os.Unsetenv("TMPDIR")
+		}
+	}()
+
+	runner := &mockTasksValidationRunner{
+		output: "irrelevant",
+	}
+
+	cfg := TasksValidationConfig{
+		Runner:    runner,
+		SpecFile:  specFile,
+		TasksFile: tasksFile,
+	}
+
+	result := RunTasksValidation(context.Background(), cfg)
+
+	assert.Equal(t, "exit", result.Action)
+	assert.Equal(t, exitcode.Error, result.ExitCode)
+	assert.Contains(t, result.Feedback, "failed to write prompt")
+}
+
+// TestRunTasksValidation_RunnerError tests handling when the AI runner returns an error.
+func TestRunTasksValidation_RunnerError(t *testing.T) {
+	tmpDir := t.TempDir()
+	specFile := filepath.Join(tmpDir, "spec.md")
+	tasksFile := filepath.Join(tmpDir, "tasks.md")
+	require.NoError(t, os.WriteFile(specFile, []byte("# Spec"), 0644))
+	require.NoError(t, os.WriteFile(tasksFile, []byte("# Tasks"), 0644))
+
+	runner := &mockTasksValidationRunner{
+		err: assert.AnError,
+	}
+
+	cfg := TasksValidationConfig{
+		Runner:    runner,
+		SpecFile:  specFile,
+		TasksFile: tasksFile,
+	}
+
+	result := RunTasksValidation(context.Background(), cfg)
+
+	assert.Equal(t, "exit", result.Action)
+	assert.Equal(t, exitcode.Error, result.ExitCode)
+	assert.Contains(t, result.Feedback, "tasks validation AI error")
+}

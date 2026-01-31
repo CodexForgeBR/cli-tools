@@ -3,6 +3,7 @@ package tasks
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -137,6 +138,86 @@ func TestCountChecked_NoCheckedAmongUnchecked(t *testing.T) {
 	count, err := CountChecked(path)
 	require.NoError(t, err)
 	assert.Equal(t, 0, count)
+}
+
+func TestCountUnchecked_WhitespaceOnlyFile(t *testing.T) {
+	content := "   \n\n  \t  \n\n"
+	path := writeTempFile(t, content)
+	count, err := CountUnchecked(path)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+}
+
+func TestCountChecked_WhitespaceOnlyFile(t *testing.T) {
+	content := "   \n\n  \t  \n\n"
+	path := writeTempFile(t, content)
+	count, err := CountChecked(path)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+}
+
+func TestCountUnchecked_DeeplyNestedTasks(t *testing.T) {
+	content := `- [ ] level 1
+  - [ ] level 2
+    - [ ] level 3
+      - [ ] level 4
+        - [ ] level 5
+`
+	path := writeTempFile(t, content)
+	count, err := CountUnchecked(path)
+	require.NoError(t, err)
+	assert.Equal(t, 5, count)
+}
+
+func TestCountChecked_DeeplyNestedTasks(t *testing.T) {
+	content := `- [x] level 1
+  - [X] level 2
+    - [x] level 3
+      - [X] level 4
+        - [x] level 5
+`
+	path := writeTempFile(t, content)
+	count, err := CountChecked(path)
+	require.NoError(t, err)
+	assert.Equal(t, 5, count)
+}
+
+func TestCountUnchecked_NonExistentFile(t *testing.T) {
+	_, err := CountUnchecked(filepath.Join(t.TempDir(), "nonexistent.md"))
+	require.Error(t, err)
+}
+
+func TestCountChecked_NonExistentFile(t *testing.T) {
+	_, err := CountChecked(filepath.Join(t.TempDir(), "nonexistent.md"))
+	require.Error(t, err)
+}
+
+// TestCountUnchecked_ScannerError triggers a scanner error by writing a
+// single line longer than bufio.MaxScanTokenSize (64 KB).
+func TestCountUnchecked_ScannerError(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "huge-line.md")
+
+	hugeLine := strings.Repeat("a", 70*1024)
+	require.NoError(t, os.WriteFile(path, []byte(hugeLine), 0644))
+
+	_, err := CountUnchecked(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too long")
+}
+
+// TestCountChecked_ScannerError triggers a scanner error by writing a
+// single line longer than bufio.MaxScanTokenSize (64 KB).
+func TestCountChecked_ScannerError(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "huge-line.md")
+
+	hugeLine := strings.Repeat("a", 70*1024)
+	require.NoError(t, os.WriteFile(path, []byte(hugeLine), 0644))
+
+	_, err := CountChecked(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too long")
 }
 
 // writeTempFile creates a temp file with the given content and returns its path.

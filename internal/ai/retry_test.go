@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CodexForgeBR/cli-tools/internal/ratelimit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -463,4 +464,269 @@ func TestRetryWithBackoff_SuccessOnFirstTry(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, callbackCalled, "callback should not be called on immediate success")
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Rate limit handling tests
+// ---------------------------------------------------------------------------
+
+func TestRetryWithBackoff_RateLimit_Parseable_SucceedsAfterWait(t *testing.T) {
+	// A parseable rate limit with ResetEpoch already in the past should resolve quickly.
+	attempts := 0
+	cfg := RetryConfig{
+		MaxRetries:        3,
+		BaseDelay:         1,
+		MaxRateLimitWaits: 3,
+	}
+
+	fn := func() error {
+		attempts++
+		if attempts == 1 {
+			return &RateLimitError{
+				Info: &ratelimit.RateLimitInfo{
+					Detected:   true,
+					Parseable:  true,
+					ResetEpoch: time.Now().Add(-1 * time.Second).Unix(), // already past
+					ResetHuman: "already past",
+				},
+			}
+		}
+		return nil
+	}
+
+	err := RetryWithBackoff(context.Background(), cfg, fn)
+	require.NoError(t, err)
+	assert.Equal(t, 2, attempts, "should succeed on second attempt after rate limit wait")
+}
+
+func TestRetryWithBackoff_RateLimit_Parseable_CancelledDuringWait(t *testing.T) {
+	// A parseable rate limit with ResetEpoch far in the future, cancelled via context.
+	cfg := RetryConfig{
+		MaxRetries:        3,
+		BaseDelay:         1,
+		MaxRateLimitWaits: 3,
+	}
+
+	fn := func() error {
+		return &RateLimitError{
+			Info: &ratelimit.RateLimitInfo{
+				Detected:   true,
+				Parseable:  true,
+				ResetEpoch: time.Now().Add(1 * time.Hour).Unix(), // far in the future
+				ResetHuman: "1 hour from now",
+			},
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	err := RetryWithBackoff(ctx, cfg, fn)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rate limit wait cancelled")
+}
+
+func TestRetryWithBackoff_RateLimit_Unparseable_ContextCancel(t *testing.T) {
+	// An unparseable rate limit triggers a 15-minute fallback wait.
+	// We cancel the context quickly to cover the ctx.Done() branch in the
+	// fallback wait select.
+	cfg := RetryConfig{
+		MaxRetries:        3,
+		BaseDelay:         1,
+		MaxRateLimitWaits: 3,
+	}
+
+	fn := func() error {
+		return &RateLimitError{
+			Info: &ratelimit.RateLimitInfo{
+				Detected:  true,
+				Parseable: false,
+			},
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err := RetryWithBackoff(ctx, cfg, fn)
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	assert.Equal(t, context.DeadlineExceeded, err)
+	assert.Less(t, elapsed, 2*time.Second, "should exit quickly on context cancel, not wait 15 min")
+}
+
+func TestRetryWithBackoff_RateLimit_NilInfo_ContextCancel(t *testing.T) {
+	// RateLimitError with nil Info takes the unparseable fallback path.
+	cfg := RetryConfig{
+		MaxRetries:        3,
+		BaseDelay:         1,
+		MaxRateLimitWaits: 3,
+	}
+
+	fn := func() error {
+		return &RateLimitError{
+			Info: nil,
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := RetryWithBackoff(ctx, cfg, fn)
+	require.Error(t, err)
+	assert.Equal(t, context.DeadlineExceeded, err)
+}
+
+func TestRetryWithBackoff_RateLimit_MaxWaitsExceeded(t *testing.T) {
+	// After MaxRateLimitWaits rate limit errors, should return an error
+	// without further retrying.
+	attempts := 0
+	cfg := RetryConfig{
+		MaxRetries:        10,
+		BaseDelay:         1,
+		MaxRateLimitWaits: 2,
+	}
+
+	fn := func() error {
+		attempts++
+		return &RateLimitError{
+			Info: &ratelimit.RateLimitInfo{
+				Detected:   true,
+				Parseable:  true,
+				ResetEpoch: time.Now().Add(-1 * time.Second).Unix(),
+				ResetHuman: "already past",
+			},
+		}
+	}
+
+	err := RetryWithBackoff(context.Background(), cfg, fn)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max rate limit waits")
+	assert.Equal(t, 2, attempts, "should stop after MaxRateLimitWaits")
+}
+
+func TestRetryWithBackoff_RateLimit_OnRateLimitCallback(t *testing.T) {
+	// Verify the OnRateLimit callback is invoked with the correct info.
+	var callbackInfo *ratelimit.RateLimitInfo
+	callbackCount := 0
+
+	cfg := RetryConfig{
+		MaxRetries:        3,
+		BaseDelay:         1,
+		MaxRateLimitWaits: 3,
+		OnRateLimit: func(info *ratelimit.RateLimitInfo) {
+			callbackCount++
+			callbackInfo = info
+		},
+	}
+
+	attempts := 0
+	fn := func() error {
+		attempts++
+		if attempts == 1 {
+			return &RateLimitError{
+				Info: &ratelimit.RateLimitInfo{
+					Detected:   true,
+					Parseable:  true,
+					ResetEpoch: time.Now().Add(-1 * time.Second).Unix(),
+					ResetHuman: "now",
+				},
+			}
+		}
+		return nil
+	}
+
+	err := RetryWithBackoff(context.Background(), cfg, fn)
+	require.NoError(t, err)
+	assert.Equal(t, 1, callbackCount, "OnRateLimit should be called once")
+	require.NotNil(t, callbackInfo)
+	assert.True(t, callbackInfo.Detected)
+}
+
+func TestRetryWithBackoff_RateLimit_ThenNormalError(t *testing.T) {
+	// First a rate limit error, then a normal error. The rate limit should be
+	// handled (wait + retry), then the normal error should trigger normal retry logic.
+	attempts := 0
+	cfg := RetryConfig{
+		MaxRetries:        1,
+		BaseDelay:         1,
+		MaxRateLimitWaits: 3,
+	}
+
+	fn := func() error {
+		attempts++
+		if attempts == 1 {
+			return &RateLimitError{
+				Info: &ratelimit.RateLimitInfo{
+					Detected:   true,
+					Parseable:  true,
+					ResetEpoch: time.Now().Add(-1 * time.Second).Unix(),
+					ResetHuman: "past",
+				},
+			}
+		}
+		return errors.New("normal error")
+	}
+
+	err := RetryWithBackoff(context.Background(), cfg, fn)
+	// After rate limit resolves, it retries same attempt. The normal error then
+	// triggers a retry. MaxRetries=1, so after 1 retry it should exceed.
+	// attempts: 1 (rate limit) -> retry same -> 2 (normal err) -> retry -> 3 (normal err) -> max exceeded
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max retries")
+}
+
+func TestRetryWithBackoff_DefaultBaseDelay(t *testing.T) {
+	// When BaseDelay is 0, it should default to 5.
+	var firstDelay int
+	cfg := RetryConfig{
+		MaxRetries: 1,
+		BaseDelay:  0, // should default to 5
+		OnRetry: func(attempt int, delay int) {
+			if firstDelay == 0 {
+				firstDelay = delay
+			}
+		},
+	}
+
+	fn := func() error {
+		return errors.New("fail")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	_ = RetryWithBackoff(ctx, cfg, fn)
+
+	assert.Equal(t, 5, firstDelay, "should default BaseDelay to 5")
+}
+
+func TestRetryWithBackoff_DefaultMaxRateLimitWaits(t *testing.T) {
+	// When MaxRateLimitWaits is 0, it should default to 3.
+	// After 3 rate limit errors it should fail.
+	attempts := 0
+	cfg := RetryConfig{
+		MaxRetries:        10,
+		BaseDelay:         1,
+		MaxRateLimitWaits: 0, // should default to 3
+	}
+
+	fn := func() error {
+		attempts++
+		return &RateLimitError{
+			Info: &ratelimit.RateLimitInfo{
+				Detected:   true,
+				Parseable:  true,
+				ResetEpoch: time.Now().Add(-1 * time.Second).Unix(),
+				ResetHuman: "past",
+			},
+		}
+	}
+
+	err := RetryWithBackoff(context.Background(), cfg, fn)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max rate limit waits")
+	assert.Equal(t, 3, attempts, "default MaxRateLimitWaits should be 3")
 }

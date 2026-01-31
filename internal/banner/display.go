@@ -183,31 +183,79 @@ func PrintInterruptedBanner(iteration int, phase string) {
 	fmt.Println(sep)
 }
 
-// PrintStatusBanner displays current session status.
-//
-// Parameters:
-//   - sessionID: Unique identifier for the session
-//   - status: Current status (e.g., "running", "paused")
-//   - iteration: Current iteration number
-//   - phase: Current phase being executed
-//   - verdict: Latest validation verdict
+// StatusInfo contains all fields for displaying session status.
+type StatusInfo struct {
+	SessionID         string
+	Status            string
+	Phase             string
+	Verdict           string
+	Iteration         int
+	MaxIterations     int
+	InadmissibleCount int
+	MaxInadmissible   int
+	StartedAt         string
+	LastUpdated       string
+	AICli             string
+	ImplModel         string
+	ValModel          string
+	CrossValEnabled   bool
+	CrossAI           string
+	CrossModel        string
+	RetryAttempt      int
+	RetryDelay        int
+	LastFeedback      string
+}
+
+// PrintStatusBanner displays current session status with all available fields.
 //
 // Example output:
 //
 //	──────────────────────────────────────────────────
-//	  Session: 20260130-153045
-//	  Status:  running
-//	  Iteration: 3
-//	  Phase:   validation
-//	  Verdict: INADMISSIBLE
+//	  Session:    20260130-153045
+//	  Status:     IN_PROGRESS
+//	  Iteration:  3/20
+//	  Phase:      validation
+//	  Verdict:    NEEDS_MORE_WORK
+//	  AI:         claude (impl: opus, val: opus)
+//	  Started:    2026-01-30T15:30:45Z
+//	  Updated:    2026-01-30T15:45:00Z
 //	──────────────────────────────────────────────────
-func PrintStatusBanner(sessionID string, status string, iteration int, phase string, verdict string) {
+func PrintStatusBanner(info StatusInfo) {
 	sep := strings.Repeat("─", 50)
 	fmt.Println(sep)
-	fmt.Printf("  Session: %s\n", sessionID)
-	fmt.Printf("  Status:  %s\n", status)
-	fmt.Printf("  Iteration: %d\n", iteration)
-	fmt.Printf("  Phase:   %s\n", phase)
-	fmt.Printf("  Verdict: %s\n", verdict)
+	fmt.Printf("  Session:    %s\n", info.SessionID)
+	fmt.Printf("  Status:     %s\n", info.Status)
+	if info.MaxIterations > 0 {
+		fmt.Printf("  Iteration:  %d/%d\n", info.Iteration, info.MaxIterations)
+	} else {
+		fmt.Printf("  Iteration:  %d\n", info.Iteration)
+	}
+	fmt.Printf("  Phase:      %s\n", info.Phase)
+	fmt.Printf("  Verdict:    %s\n", info.Verdict)
+	if info.AICli != "" {
+		fmt.Printf("  AI:         %s (impl: %s, val: %s)\n", info.AICli, info.ImplModel, info.ValModel)
+	}
+	if info.CrossValEnabled {
+		fmt.Printf("  Cross-val:  %s / %s\n", info.CrossAI, info.CrossModel)
+	}
+	if info.InadmissibleCount > 0 || info.MaxInadmissible > 0 {
+		fmt.Printf("  Inadmiss.:  %d/%d\n", info.InadmissibleCount, info.MaxInadmissible)
+	}
+	if info.StartedAt != "" {
+		fmt.Printf("  Started:    %s\n", info.StartedAt)
+	}
+	if info.LastUpdated != "" {
+		fmt.Printf("  Updated:    %s\n", info.LastUpdated)
+	}
+	if info.RetryAttempt > 0 {
+		fmt.Printf("  Retry:      attempt %d (delay %ds)\n", info.RetryAttempt, info.RetryDelay)
+	}
+	if info.LastFeedback != "" {
+		feedback := info.LastFeedback
+		if len(feedback) > 80 {
+			feedback = feedback[:80] + "..."
+		}
+		fmt.Printf("  Feedback:   %s\n", feedback)
+	}
 	fmt.Println(sep)
 }

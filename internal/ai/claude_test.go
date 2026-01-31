@@ -1,6 +1,11 @@
 package ai
 
 import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -228,4 +233,86 @@ func indexOf(slice []string, str string) int {
 		}
 	}
 	return -1
+}
+
+// ---------------------------------------------------------------------------
+// ClaudeRunner.Run() tests
+// ---------------------------------------------------------------------------
+
+func TestClaudeRunnerRun_CreateOutputError(t *testing.T) {
+	r := &ClaudeRunner{Model: "test-model", MaxTurns: 1}
+	// Pass an output path in a directory that does not exist -> os.Create fails
+	err := r.Run(context.Background(), "prompt", "/nonexistent-dir-abc123/output.json")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "create output file")
+}
+
+func TestClaudeRunnerRun_CommandFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows")
+	}
+
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "output.json")
+
+	// Ensure "claude" is NOT in PATH by using a PATH with only a harmless directory
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", tmpDir)
+	defer os.Setenv("PATH", origPath)
+
+	r := &ClaudeRunner{Model: "test-model", MaxTurns: 1}
+	err := r.Run(context.Background(), "prompt", outputPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "claude command failed")
+}
+
+func TestClaudeRunnerRun_RateLimitDetected(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows")
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create a fake "claude" script that writes rate-limit content to stdout
+	fakeScript := filepath.Join(tmpDir, "claude")
+	// The script writes a short string that matches bare rate-limit patterns
+	// (content <= 500 bytes to match BarePatternMaxContentSize)
+	scriptContent := "#!/bin/sh\necho \"rate limit exceeded\"\nexit 1\n"
+	err := os.WriteFile(fakeScript, []byte(scriptContent), 0755)
+	require.NoError(t, err)
+
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", tmpDir+":"+origPath)
+	defer os.Setenv("PATH", origPath)
+
+	outputPath := filepath.Join(tmpDir, "output.json")
+	r := &ClaudeRunner{Model: "test-model", MaxTurns: 1}
+	err = r.Run(context.Background(), "prompt", outputPath)
+	require.Error(t, err)
+
+	var rlErr *RateLimitError
+	assert.True(t, errors.As(err, &rlErr), "should return a RateLimitError")
+}
+
+func TestClaudeRunnerRun_Success(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows")
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create a fake "claude" script that exits successfully
+	fakeScript := filepath.Join(tmpDir, "claude")
+	scriptContent := "#!/bin/sh\necho \"RALPH_STATUS: success\"\n"
+	err := os.WriteFile(fakeScript, []byte(scriptContent), 0755)
+	require.NoError(t, err)
+
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", tmpDir+":"+origPath)
+	defer os.Setenv("PATH", origPath)
+
+	outputPath := filepath.Join(tmpDir, "output.json")
+	r := &ClaudeRunner{Model: "test-model", MaxTurns: 1}
+	err = r.Run(context.Background(), "prompt", outputPath)
+	require.NoError(t, err)
 }

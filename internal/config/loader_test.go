@@ -224,6 +224,43 @@ func TestLoadWithPrecedenceMissingProjectIsNotError(t *testing.T) {
 func TestLoadWithPrecedenceMissingExplicitIsError(t *testing.T) {
 	_, err := config.LoadWithPrecedence("", "", "/nonexistent/explicit/config", nil)
 	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "explicit config")
+}
+
+func TestLoadWithPrecedenceInvalidExplicitPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Create a directory, not a file
+	dirPath := filepath.Join(tmpDir, "config-dir")
+	require.NoError(t, os.Mkdir(dirPath, 0755))
+
+	// Trying to load a directory as config should fail
+	_, err := config.LoadWithPrecedence("", "", dirPath, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "explicit config")
+}
+
+func TestLoadWithPrecedenceInvalidGlobalPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Create a directory, not a file
+	dirPath := filepath.Join(tmpDir, "global-dir")
+	require.NoError(t, os.Mkdir(dirPath, 0755))
+
+	// Global config error (non-ErrNotExist) should be returned
+	_, err := config.LoadWithPrecedence(dirPath, "", "", nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "global config")
+}
+
+func TestLoadWithPrecedenceInvalidProjectPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Create a directory, not a file
+	dirPath := filepath.Join(tmpDir, "project-dir")
+	require.NoError(t, os.Mkdir(dirPath, 0755))
+
+	// Project config error (non-ErrNotExist) should be returned
+	_, err := config.LoadWithPrecedence("", dirPath, "", nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "project config")
 }
 
 // ---------------------------------------------------------------------------
@@ -317,11 +354,17 @@ func TestApplyMapToConfigBooleanVariations(t *testing.T) {
 		{"1", true},
 		{"yes", true},
 		{"YES", true},
+		{"Yes", true},
 		{"false", false},
+		{"FALSE", false},
+		{"False", false},
 		{"0", false},
 		{"no", false},
+		{"NO", false},
 		{"anything", false},
 		{"", false},
+		{"  true  ", true},   // whitespace trimming
+		{"  false  ", false}, // whitespace trimming
 	}
 
 	for _, tt := range tests {

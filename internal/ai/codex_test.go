@@ -1,6 +1,11 @@
 package ai
 
 import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -238,4 +243,84 @@ func TestCodexRunner_ArgsOrder(t *testing.T) {
 		jsonIdx := indexOf(args, "--json")
 		assert.Less(t, execIdx, jsonIdx, "exec should come before --json")
 	})
+}
+
+// ---------------------------------------------------------------------------
+// CodexRunner.Run() tests
+// ---------------------------------------------------------------------------
+
+func TestCodexRunnerRun_CreateOutputError(t *testing.T) {
+	r := &CodexRunner{Model: "test-model"}
+	// Pass an output path in a directory that does not exist -> os.Create fails
+	err := r.Run(context.Background(), "prompt", "/nonexistent-dir-abc123/output.json")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "create output file")
+}
+
+func TestCodexRunnerRun_CommandFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows")
+	}
+
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "output.json")
+
+	// Ensure "codex" is NOT in PATH by setting PATH to a harmless directory
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", tmpDir)
+	defer os.Setenv("PATH", origPath)
+
+	r := &CodexRunner{Model: "test-model"}
+	err := r.Run(context.Background(), "prompt", outputPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "codex command failed")
+}
+
+func TestCodexRunnerRun_RateLimitDetected(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows")
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create a fake "codex" script that writes rate-limit content to stdout
+	fakeScript := filepath.Join(tmpDir, "codex")
+	scriptContent := "#!/bin/sh\necho \"rate limit exceeded\"\nexit 1\n"
+	err := os.WriteFile(fakeScript, []byte(scriptContent), 0755)
+	require.NoError(t, err)
+
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", tmpDir+":"+origPath)
+	defer os.Setenv("PATH", origPath)
+
+	outputPath := filepath.Join(tmpDir, "output.json")
+	r := &CodexRunner{Model: "test-model"}
+	err = r.Run(context.Background(), "prompt", outputPath)
+	require.Error(t, err)
+
+	var rlErr *RateLimitError
+	assert.True(t, errors.As(err, &rlErr), "should return a RateLimitError")
+}
+
+func TestCodexRunnerRun_Success(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows")
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create a fake "codex" script that exits successfully
+	fakeScript := filepath.Join(tmpDir, "codex")
+	scriptContent := "#!/bin/sh\necho \"RALPH_STATUS: success\"\n"
+	err := os.WriteFile(fakeScript, []byte(scriptContent), 0755)
+	require.NoError(t, err)
+
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", tmpDir+":"+origPath)
+	defer os.Setenv("PATH", origPath)
+
+	outputPath := filepath.Join(tmpDir, "output.json")
+	r := &CodexRunner{Model: "test-model"}
+	err = r.Run(context.Background(), "prompt", outputPath)
+	require.NoError(t, err)
 }

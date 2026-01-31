@@ -160,3 +160,80 @@ func TestWaitUntil_CancelledContext(t *testing.T) {
 	assert.Equal(t, context.Canceled, err)
 	assert.Less(t, duration, 100*time.Millisecond, "should return immediately with cancelled context")
 }
+
+// ---------------------------------------------------------------------------
+// WaitUntil interval clamping test
+// ---------------------------------------------------------------------------
+
+func TestWaitUntil_IntervalClamping(t *testing.T) {
+	// Set target to 200ms from now. The adaptive interval (1s) is greater
+	// than remaining, so the code should clamp: interval = remaining.
+	target := time.Now().Add(200 * time.Millisecond)
+	start := time.Now()
+	err := WaitUntil(context.Background(), target)
+	duration := time.Since(start)
+
+	require.NoError(t, err)
+	// Should complete in approximately 200ms, not 1s
+	assert.Less(t, duration, 500*time.Millisecond, "should clamp interval to remaining time")
+}
+
+func TestWaitUntil_TargetExpiresBeforeFirstIteration(t *testing.T) {
+	// Target is barely in the future (1 microsecond). By the time the
+	// fmt.Printf runs and the for loop starts, time.Until(target) <= 0,
+	// exercising the early-return path at lines 22-25.
+	//
+	// We try multiple times because the exact timing depends on scheduler.
+	for i := 0; i < 20; i++ {
+		target := time.Now().Add(1 * time.Microsecond)
+		err := WaitUntil(context.Background(), target)
+		require.NoError(t, err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// adaptiveInterval boundary tests
+// ---------------------------------------------------------------------------
+
+func TestAdaptiveInterval_OverOneHour(t *testing.T) {
+	interval := adaptiveInterval(2 * time.Hour)
+	assert.Equal(t, 60*time.Second, interval, ">1h should use 60s interval")
+}
+
+func TestAdaptiveInterval_ExactlyOneHour(t *testing.T) {
+	// Exactly 1h is NOT > 1h, so falls to >10min bracket
+	interval := adaptiveInterval(time.Hour)
+	assert.Equal(t, 30*time.Second, interval, "=1h should use 30s interval")
+}
+
+func TestAdaptiveInterval_OverTenMinutes(t *testing.T) {
+	interval := adaptiveInterval(30 * time.Minute)
+	assert.Equal(t, 30*time.Second, interval, ">10min should use 30s interval")
+}
+
+func TestAdaptiveInterval_ExactlyTenMinutes(t *testing.T) {
+	// Exactly 10min is NOT > 10min, so falls to >1min bracket
+	interval := adaptiveInterval(10 * time.Minute)
+	assert.Equal(t, 10*time.Second, interval, "=10min should use 10s interval")
+}
+
+func TestAdaptiveInterval_OverOneMinute(t *testing.T) {
+	interval := adaptiveInterval(5 * time.Minute)
+	assert.Equal(t, 10*time.Second, interval, ">1min should use 10s interval")
+}
+
+func TestAdaptiveInterval_ExactlyOneMinute(t *testing.T) {
+	// Exactly 1min is NOT > 1min, so falls to <1min bracket
+	interval := adaptiveInterval(time.Minute)
+	assert.Equal(t, 1*time.Second, interval, "=1min should use 1s interval")
+}
+
+func TestAdaptiveInterval_UnderOneMinute(t *testing.T) {
+	interval := adaptiveInterval(30 * time.Second)
+	assert.Equal(t, 1*time.Second, interval, "<1min should use 1s interval")
+}
+
+func TestAdaptiveInterval_VerySmall(t *testing.T) {
+	interval := adaptiveInterval(100 * time.Millisecond)
+	assert.Equal(t, 1*time.Second, interval, "very small remaining should use 1s interval")
+}

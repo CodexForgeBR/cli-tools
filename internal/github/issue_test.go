@@ -3,6 +3,7 @@ package github
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -330,6 +331,62 @@ func TestParseIssueRef_EdgeCases(t *testing.T) {
 	}
 }
 
+func TestParseIssueRef_TrailingSlashInRepo(t *testing.T) {
+	_, _, _, err := ParseIssueRef("owner/repo/#123")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid repo path")
+}
+
+func TestParseIssueRef_MalformedURLs(t *testing.T) {
+	tests := []struct {
+		name        string
+		ref         string
+		shouldError bool
+		expectedErr string
+	}{
+		{
+			name:        "URL-like but invalid",
+			ref:         "https://github.com/owner/repo/issues/123",
+			shouldError: true,
+			expectedErr: "invalid issue reference format",
+		},
+		{
+			name:        "URL with fragment",
+			ref:         "owner/repo#123#fragment",
+			shouldError: true,
+			expectedErr: "invalid issue reference format",
+		},
+		{
+			name:        "double slash",
+			ref:         "owner//repo#123",
+			shouldError: true,
+			expectedErr: "invalid repo path",
+		},
+		{
+			name:        "empty owner",
+			ref:         "/repo#123",
+			shouldError: false, // Actually valid: owner="", repo="repo"
+		},
+		{
+			name:        "empty repo",
+			ref:         "owner/#123",
+			shouldError: false, // Actually valid: owner="owner", repo=""
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, _, err := ParseIssueRef(tt.ref)
+			if tt.shouldError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 // TestCacheIssue_SpecialCharacters tests caching content with special characters.
 func TestCacheIssue_SpecialCharacters(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -351,4 +408,96 @@ This has:
 	savedContent, err := os.ReadFile(cachePath)
 	require.NoError(t, err)
 	assert.Equal(t, content, string(savedContent))
+}
+
+func TestCacheIssue_WriteToInvalidDirectory(t *testing.T) {
+	// Try to write to a path where parent is a file, not a directory
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "regular-file")
+	err := os.WriteFile(filePath, []byte("content"), 0644)
+	require.NoError(t, err)
+
+	// Now try to create a cache directory "inside" this file (impossible)
+	invalidDir := filepath.Join(filePath, "nested")
+	err = CacheIssue(invalidDir, "content")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create cache directory")
+}
+
+func TestCacheIssue_ReadOnlyDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	readOnlyDir := filepath.Join(tmpDir, "readonly")
+	require.NoError(t, os.Mkdir(readOnlyDir, 0755))
+
+	// Make directory read-only (no write permission)
+	require.NoError(t, os.Chmod(readOnlyDir, 0444))
+	t.Cleanup(func() {
+		// Restore permissions for cleanup
+		_ = os.Chmod(readOnlyDir, 0755)
+	})
+
+	// Trying to write to read-only directory should fail
+	err := CacheIssue(readOnlyDir, "content")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to write issue cache")
+}
+
+// TestFetchIssue_CommandReturnsEmptyContent uses a fake gh script that
+// exits successfully but produces no output, exercising the empty-content
+// error path.
+func TestFetchIssue_CommandReturnsEmptyContent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script approach does not work on Windows")
+	}
+
+	tmpDir := t.TempDir()
+	fakeGh := filepath.Join(tmpDir, "gh")
+	require.NoError(t, os.WriteFile(fakeGh, []byte("#!/bin/sh\nexit 0\n"), 0755))
+
+	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
+
+	content, err := FetchIssue("owner", "repo", 1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "has no content")
+	assert.Empty(t, content)
+}
+
+// TestFetchIssue_CommandReturnsContent uses a fake gh script that outputs
+// issue content, exercising the successful execution path.
+func TestFetchIssue_CommandReturnsContent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script approach does not work on Windows")
+	}
+
+	tmpDir := t.TempDir()
+	fakeGh := filepath.Join(tmpDir, "gh")
+	scriptContent := "#!/bin/sh\necho \"Issue Title\"\necho \"\"\necho \"Issue body content\"\n"
+	require.NoError(t, os.WriteFile(fakeGh, []byte(scriptContent), 0755))
+
+	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
+
+	content, err := FetchIssue("owner", "repo", 1)
+	require.NoError(t, err)
+	assert.Contains(t, content, "Issue Title")
+	assert.Contains(t, content, "Issue body content")
+}
+
+// TestFetchIssue_CommandFails uses a fake gh script that exits with a
+// non-zero status, exercising the command execution error path.
+func TestFetchIssue_CommandFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script approach does not work on Windows")
+	}
+
+	tmpDir := t.TempDir()
+	fakeGh := filepath.Join(tmpDir, "gh")
+	scriptContent := "#!/bin/sh\necho \"error: not authenticated\" >&2\nexit 1\n"
+	require.NoError(t, os.WriteFile(fakeGh, []byte(scriptContent), 0755))
+
+	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
+
+	content, err := FetchIssue("owner", "repo", 1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to fetch issue")
+	assert.Empty(t, content)
 }
