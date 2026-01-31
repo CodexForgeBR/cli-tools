@@ -1,6 +1,6 @@
 module github.com/CodexForgeBR/cli-tools
 
-go 1.24
+go 1.23
 
 require (
 	github.com/fatih/color v1.18.0
