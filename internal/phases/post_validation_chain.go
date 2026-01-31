@@ -3,7 +3,6 @@ package phases
 import (
 	"context"
 	"os"
-	"path/filepath"
 
 	"github.com/CodexForgeBR/cli-tools/internal/ai"
 	"github.com/CodexForgeBR/cli-tools/internal/exitcode"
@@ -80,12 +79,19 @@ func runCrossValidation(ctx context.Context, cfg PostValidationConfig) PostValid
 	crossValPrompt := prompt.BuildCrossValidationPrompt(cfg.TasksFile, cfg.ValOutputFile, cfg.ImplOutputFile)
 
 	// Create temporary output file for cross-validation
-	tmpDir := os.TempDir()
-	outputPath := filepath.Join(tmpDir, "cross-validation-output.json")
+	tmpFile, err := os.CreateTemp("", "cross-validation-output-*.json")
+	if err != nil {
+		return PostValidationResult{
+			Action:   "exit",
+			ExitCode: exitcode.Error,
+		}
+	}
+	outputPath := tmpFile.Name()
+	tmpFile.Close()
 	defer os.Remove(outputPath)
 
 	// Run cross-validation
-	err := cfg.CrossValRunner.Run(ctx, crossValPrompt, outputPath)
+	err = cfg.CrossValRunner.Run(ctx, crossValPrompt, outputPath)
 	if err != nil {
 		return PostValidationResult{
 			Action:   "exit",
@@ -127,7 +133,7 @@ func runCrossValidation(ctx context.Context, cfg PostValidationConfig) PostValid
 	case "REJECTED":
 		return PostValidationResult{
 			Action:   "continue",
-			ExitCode: 0,
+			ExitCode: exitcode.Success,
 			Feedback: parsed.Feedback,
 		}
 	default:
@@ -152,12 +158,19 @@ func runFinalPlanValidation(ctx context.Context, cfg PostValidationConfig) PostV
 	finalPlanPrompt := prompt.BuildFinalPlanPrompt(cfg.SpecFile, cfg.TasksFile, cfg.PlanFile)
 
 	// Create temporary output file for final-plan validation
-	tmpDir := os.TempDir()
-	outputPath := filepath.Join(tmpDir, "final-plan-validation-output.json")
+	tmpFile, err := os.CreateTemp("", "final-plan-validation-output-*.json")
+	if err != nil {
+		return PostValidationResult{
+			Action:   "exit",
+			ExitCode: exitcode.Error,
+		}
+	}
+	outputPath := tmpFile.Name()
+	tmpFile.Close()
 	defer os.Remove(outputPath)
 
 	// Run final-plan validation
-	err := cfg.FinalPlanRunner.Run(ctx, finalPlanPrompt, outputPath)
+	err = cfg.FinalPlanRunner.Run(ctx, finalPlanPrompt, outputPath)
 	if err != nil {
 		return PostValidationResult{
 			Action:   "exit",
@@ -199,7 +212,7 @@ func runFinalPlanValidation(ctx context.Context, cfg PostValidationConfig) PostV
 	case "NOT_IMPLEMENTED":
 		return PostValidationResult{
 			Action:   "continue",
-			ExitCode: 0,
+			ExitCode: exitcode.Success,
 			Feedback: parsed.Feedback,
 		}
 	default:
