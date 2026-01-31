@@ -114,18 +114,18 @@ func runCrossValidation(ctx context.Context, cfg PostValidationConfig) PostValid
 		}
 	}
 
-	// Dump cross-validation output to stderr for visibility
-	if data, readErr := os.ReadFile(outputPath); readErr == nil && len(data) > 0 {
-		_, _ = os.Stderr.Write(data)
-	}
-
-	// Parse cross-validation result
+	// Read output once for both stderr dump and parsing
 	output, err := os.ReadFile(outputPath)
 	if err != nil {
 		return PostValidationResult{
 			Action:   "exit",
 			ExitCode: exitcode.Error,
 		}
+	}
+
+	// Dump cross-validation output to stderr for visibility
+	if len(output) > 0 {
+		_, _ = os.Stderr.Write(output)
 	}
 
 	parsed, err := parser.ParseCrossValidation(string(output))
@@ -207,18 +207,18 @@ func runFinalPlanValidation(ctx context.Context, cfg PostValidationConfig) PostV
 		}
 	}
 
-	// Dump final-plan output to stderr for visibility
-	if data, readErr := os.ReadFile(outputPath); readErr == nil && len(data) > 0 {
-		_, _ = os.Stderr.Write(data)
-	}
-
-	// Parse final-plan result
+	// Read output once for both stderr dump and parsing
 	output, err := os.ReadFile(outputPath)
 	if err != nil {
 		return PostValidationResult{
 			Action:   "exit",
 			ExitCode: exitcode.Error,
 		}
+	}
+
+	// Dump final-plan output to stderr for visibility
+	if len(output) > 0 {
+		_, _ = os.Stderr.Write(output)
 	}
 
 	parsed, err := parser.ParseFinalPlan(string(output))
