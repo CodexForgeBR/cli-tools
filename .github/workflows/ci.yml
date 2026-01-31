@@ -7,7 +7,7 @@ on:
       - "**.go"
       - "go.mod"
       - "go.sum"
-      - ".github/workflows/ci.yml"
+      - ".github/workflows/**"
       - ".golangci.yml"
       - ".goreleaser.yml"
   push:
@@ -16,7 +16,7 @@ on:
       - "**.go"
       - "go.mod"
       - "go.sum"
-      - ".github/workflows/ci.yml"
+      - ".github/workflows/**"
       - ".golangci.yml"
       - ".goreleaser.yml"
 
