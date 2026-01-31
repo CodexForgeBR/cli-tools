@@ -22,3 +22,10 @@ dist/
 ralph-loop
 *.exe
 *.out
+
+# Ralph-loop runtime state
+.ralph-loop/
+
+# Python
+__pycache__/
+*.pyc
