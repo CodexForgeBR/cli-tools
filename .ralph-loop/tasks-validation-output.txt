@@ -1,0 +1,132 @@
+
+
+I'll start by reading both files to perform the validation.
+[Tool Call: Glob] {"pattern": "**/*.md", "path": "/Users/bccs/source/cli-tools"}
+[Tool Call: Read] {"file_path": "/Users/bccs/source/cli-tools/specs/001-ralph-loop-go-cli/spec.md"}
+[Tool Call: Read] {"file_path": "/Users/bccs/source/cli-tools/specs/001-ralph-loop-go-cli/tasks.md"}
+Now let me also read the supporting design documents to understand the full spec context.
+[Tool Call: Read] {"file_path": "/Users/bccs/source/cli-tools/specs/001-ralph-loop-go-cli/plan.md"}
+[Tool Call: Read] {"file_path": "/Users/bccs/source/cli-tools/specs/001-ralph-loop-go-cli/data-model.md"}
+[Tool Call: Read] {"file_path": "/Users/bccs/source/cli-tools/specs/001-ralph-loop-go-cli/contracts/cli-interface.md"}
+I've now read both the spec and tasks files, plus the supporting design documents (plan, data model, CLI interface contract). Let me perform a thorough validation.
+
+---
+
+```json
+{
+  "RALPH_TASKS_VALIDATION": {
+    "verdict": "PASS",
+    "feedback": "Tasks comprehensively cover all 49 functional requirements (FR-001 through FR-049), all 7 user stories, all edge cases, and all success criteria from the spec. Task granularity is excellent — each task is specific, names exact file paths, and describes clear implementation targets. TDD ordering is correct (tests before implementations). Phase dependencies are well-documented and match the spec's priority ordering. No missing requirements, no out-of-scope additions, no vague tasks.",
+    "missing_requirements": [],
+    "out_of_scope_tasks": [],
+    "vague_tasks": [],
+    "quality_score": "Excellent. 132 tasks covering all spec requirements with proper TDD sequencing, parallelism markers, dependency tracking, and incremental delivery strategy."
+  }
+}
+```
+
+## Detailed Analysis
+
+### Completeness Check — All Requirements Covered
+
+**CLI Interface (FR-001 through FR-005):**
+- FR-001 (32 CLI flags): T079, T082 — explicit coverage of all 32 flags
+- FR-002 (help text parity): T081, T083, T126 — tests + implementation + polish verification
+- FR-003 (mutual exclusion): T080 — explicit test
+- FR-004 (override detection): T079 mentions `Changed()`, T082 implements it
+- FR-005 (version display): T009 (version vars), T114 (version output verification)
+
+**Configuration (FR-006 through FR-008):**
+- FR-006 (KEY=VALUE with 24 vars): T012, T013, T024, T025
+- FR-007 (precedence chain): T013, T085, T086
+- FR-008 (unknown keys silently ignored): T013
+
+**Task Management (FR-009 through FR-012):**
+- FR-009 (auto-detect): T014, T026
+- FR-010 (count checked/unchecked): T015, T027
+- FR-011 (SHA-256 hash): T016, T028
+- FR-012 (forbidden patterns): T017, T029
+
+**Implementation Loop (FR-013 through FR-016):**
+- FR-013 (10-phase workflow): T054, T077
+- FR-014 (prompt templates): T040, T041, T062, T063, T064
+- FR-015 (AI CLI subprocess): T043, T044, T066, T067
+- FR-016 (JSON extraction): T018, T030, T033-T035, T055-T057
+
+**Validation (FR-017 through FR-020):**
+- FR-017 (5 verdict types): T050, T073
+- FR-018 (COMPLETE override): T050 explicitly mentions this
+- FR-019 (inadmissible tracking): T050, T073
+- FR-020 (BLOCKED partial/full): T050 explicitly mentions this
+
+**Cross-Validation & Plan Validation (FR-021 through FR-024):**
+- FR-021 (opposite AI selection): T019, T031, T084
+- FR-022 (independent cross-validation): T099, T108
+- FR-023 (pre-implementation tasks validation): T100, T109
+- FR-024 (final plan validation): T101, T110
+
+**State Management (FR-025 through FR-029):**
+- FR-025 (JSON schema v2): T036, T058
+- FR-026 (save on phase transition/signal): T048, T071, T077
+- FR-027 (phase-aware resume): T087, T091
+- FR-028 (hash validation on resume): T087, T091
+- FR-029 (iteration snapshots): T037, T059
+
+**Process Management (FR-030 through FR-033):**
+- FR-030 (inactivity timeout): T045, T068
+- FR-031 (hard cap 7200s): T045, T068
+- FR-032 (exponential backoff): T046, T069
+- FR-033 (SIGINT/SIGTERM handling): T048, T071
+
+**Learnings (FR-034 through FR-035):**
+- FR-034 (extract RALPH_LEARNINGS): T038, T060
+- FR-035 (inject learnings into prompts): T040, T064
+
+**Exit Codes (FR-036):**
+- All 8 codes covered in T010, T022, T129
+
+**Notifications (FR-037 through FR-038):**
+- FR-037 (7 event types): T115, T117
+- FR-038 (silent skip): T116, T118
+
+**Prompt Templates (FR-039 through FR-040):**
+- FR-039 (verbatim text): T062, T128
+- FR-040 (compile-time embedding): T063
+
+**Distribution (FR-041 through FR-043):**
+- FR-041 (3 platforms): T005, T112, T131
+- FR-042 (GitHub Releases + Homebrew): T005, T007, T113
+- FR-043 (coexist with shell): inherent in project structure
+
+**Session Management Commands (FR-044 through FR-046):**
+- FR-044 (--status): T088, T092
+- FR-045 (--clean): T089, T092
+- FR-046 (--cancel): T090, T092
+
+**Backward Compatibility (FR-047 through FR-049):**
+- FR-047 (read shell state): T036, T127
+- FR-048 (write shell-compatible state): T058, T127
+- FR-049 (same config format): T024, T025
+
+### Edge Cases Covered
+
+- AI CLI not installed: T047, T070
+- tasks.md not found: T014, T026
+- AI process hang: T045, T068
+- No parseable JSON output: T046, T069
+- Config file syntax errors: T013 (comments, whitespace, empty lines)
+- No interrupted session on --resume: T087
+- SIGTERM handling: T048, T071
+- OpenClaw not running: T116, T118
+- Cross-val AI not installed: T047, T070 (silently skipped)
+- --start-at past time: T120, T122
+- State directory permissions: covered by state manager init
+- --clean + --resume precedence: T089, T092
+
+### Scheduling (User Story 8)
+
+The spec mentions scheduling in User Story 2 (flag `--start-at`), the edge cases section, and FR-013 (phase 9: schedule wait). The tasks file correctly includes Phase 10 (T120-T124) covering schedule parsing, waiting, and orchestrator integration. Note: while the spec doesn't have a dedicated User Story for scheduling, the tasks correctly extracted this from the flag definitions and the 10-phase workflow.
+
+### Scope Control
+
+No tasks add features beyond the spec. The tasks strictly implement what the spec requires. Phase 11 (Polish) appropriately focuses on parity verification rather than adding new features.
