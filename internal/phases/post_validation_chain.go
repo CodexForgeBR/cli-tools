@@ -82,6 +82,7 @@ func runCrossValidation(ctx context.Context, cfg PostValidationConfig) PostValid
 	// Create temporary output file for cross-validation
 	tmpDir := os.TempDir()
 	outputPath := filepath.Join(tmpDir, "cross-validation-output.json")
+	defer os.Remove(outputPath)
 
 	// Run cross-validation
 	err := cfg.CrossValRunner.Run(ctx, crossValPrompt, outputPath)
@@ -153,6 +154,7 @@ func runFinalPlanValidation(ctx context.Context, cfg PostValidationConfig) PostV
 	// Create temporary output file for final-plan validation
 	tmpDir := os.TempDir()
 	outputPath := filepath.Join(tmpDir, "final-plan-validation-output.json")
+	defer os.Remove(outputPath)
 
 	// Run final-plan validation
 	err := cfg.FinalPlanRunner.Run(ctx, finalPlanPrompt, outputPath)

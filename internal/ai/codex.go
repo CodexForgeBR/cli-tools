@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -77,7 +78,7 @@ func (r *CodexRunner) Run(ctx context.Context, prompt string, outputPath string)
 	// Check if outputPath has content from --output-last-message
 	// If empty or missing, fallback to parsing raw JSONL
 	outputContent, readErr := os.ReadFile(outputPath)
-	if readErr != nil || len(outputContent) == 0 {
+	if readErr != nil || len(bytes.TrimSpace(outputContent)) == 0 {
 		rawData, rawReadErr := os.ReadFile(rawPath)
 		if rawReadErr == nil {
 			extracted := parser.ParseCodexJSONL(string(rawData))
